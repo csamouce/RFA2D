@@ -229,41 +229,43 @@
         const noduleButtons = noduleSelectionDiv.querySelectorAll('.nodule-button');
 
         // --- Game State Variables ---
-        let gameActive = false; // Is the procedure (ablation logic) running?
+        let gameActive = false;
         let rfActive = false;
         let score = 0;
         let animationFrameId = null;
         let power = 50;
-        let needleState = 'idle'; // 'idle', 'awaiting_entry_point', 'awaiting_insertion_angle', 'inserted'
-        let entryPoint = null; // { x, y } on anatomy canvas
-        let pivotPoint = null; // { x, y } mapped entry point on ultrasound canvas
-        let needlePos = { x: 0, y: 0 }; // Tip position, calculated
-        let needleAngle = Math.PI / 2; // Current angle
-        let initialInsertionAngle = null; // Angle when needle first inserted via click
-        const angleLimit = Math.PI / 18; // Limit angular deviation (10 degrees)
+        let needleState = 'idle';
+        let entryPoint = null;
+        let pivotPoint = null;
+        let needlePos = { x: 0, y: 0 };
+        let needleAngle = Math.PI / 2;
+        let initialInsertionAngle = null;
+        const angleLimit = Math.PI / 18;
         let needleLength = 100;
-        const retractionThreshold = 15; // Needle length below which it's considered retracted
+        const retractionThreshold = 15;
         let nodule = null;
         let criticalStructures = [];
-        let voxels = [];
+        let voxels = []; // Now stores { x, y, z, size, state, ablationProgress, temperature, impedance }
         const voxelSize = 10;
         let totalNoduleVoxels = 0;
-        let selectedNoduleRadius = null; // Start with no size selected
+        let selectedNoduleRadius = null;
         let currentSlice = 0;
         let maxSlices = 5;
 
         // Ablation constants
-        const ABLATION_RATE_FACTOR = 0.025;
+        const ABLATION_RATE_FACTOR = 0.05; // Rate progress increases when temp > threshold
         const EXCESSIVE_THRESHOLD = 1.5;
         const ADEQUATE_THRESHOLD = 1.0;
         const INCOMPLETE_THRESHOLD = 0.1;
-        const HEAT_SPREAD_RADIUS = 2.5 * voxelSize;
+        const BASE_HEAT_SPREAD_RADIUS = voxelSize * 2.0; // Base radius at 50W power
         const TIP_CONDITION_RADIUS = voxelSize * 1.5;
 
         // Temp/Impedance constants
         const BODY_TEMP = 37.0;
         const MAX_TEMP = 95.0;
-        const EFFECTIVE_TEMP_THRESHOLD = 60.0;
+        const EFFECTIVE_TEMP_THRESHOLD = 60.0; // Ablation starts accumulating above this temp
+        const TEMP_INCREASE_RATE = 0.8; // Base rate of temp increase per tick per voxel
+        const TEMP_DECREASE_RATE = 0.05; // Rate of cooling per tick per voxel
         const BASE_IMPEDANCE = 70;
         const MAX_IMPEDANCE = 400;
         const IMPEDANCE_AT_ADEQUATE = 200;
@@ -276,84 +278,38 @@
 
         // --- Initialization ---
         function initGame(isReset = false) {
-            gameActive = false;
-            rfActive = false;
-            score = 0;
-            power = 50;
-            needleState = 'idle';
-            entryPoint = null;
-            pivotPoint = null;
-            initialInsertionAngle = null;
-            needleAngle = Math.PI / 2;
-            needleLength = 100;
-            needlePos = { x: -100, y: -100 };
-            voxels = [];
-            totalNoduleVoxels = 0;
-            nodule = null; // Clear nodule info
-            warningArea.textContent = '';
-            instructionText.textContent = 'Select Nodule Size Below';
-            if (animationFrameId) cancelAnimationFrame(animationFrameId);
-            animationFrameId = null;
-            if (gameLogicInterval) clearInterval(gameLogicInterval);
-            gameLogicInterval = null;
+            gameActive = false; rfActive = false; score = 0; power = 50;
+            needleState = 'idle'; entryPoint = null; pivotPoint = null; initialInsertionAngle = null;
+            needleAngle = Math.PI / 2; needleLength = 100; needlePos = { x: -100, y: -100 };
+            voxels = []; totalNoduleVoxels = 0; nodule = null;
+            warningArea.textContent = ''; instructionText.textContent = 'Select Nodule Size Below';
+            if (animationFrameId) cancelAnimationFrame(animationFrameId); animationFrameId = null;
+            if (gameLogicInterval) clearInterval(gameLogicInterval); gameLogicInterval = null;
 
-            // Don't create nodule/voxels until size is selected
-             if (selectedNoduleRadius && !isReset) { // Only create if size selected AND not a full reset call
+             if (selectedNoduleRadius && !isReset) {
                 createNoduleAndVoxels();
-                instructionText.textContent = 'Click Start Game';
-                startButton.disabled = false;
-            } else if (!isReset) {
-                 startButton.disabled = true; // Keep start disabled if no size
-            }
+                instructionText.textContent = 'Click Start Game'; startButton.disabled = false;
+            } else if (!isReset) { startButton.disabled = true; }
 
-
-            // Critical Structures
-            criticalStructures = [
-                { x: anatomyCanvas.width * 0.3, y: 20, width: 40, height: 60, name: 'Vessel' },
-                { x: anatomyCanvas.width * 0.6, y: 20, width: 50, height: 60, name: 'Trachea' }
-            ];
-
-            // Reset UI elements
-            rfButton.textContent = 'RF OFF';
-            rfButton.classList.remove('on');
-            rfButton.disabled = true;
-            powerSlider.disabled = true;
-            resetButton.disabled = true; // Disabled until game starts
-            powerSlider.value = power;
-            powerValueSpan.textContent = power;
-            noduleButtons.forEach(btn => btn.disabled = false); // Enable size selection
-            if (!isReset) { // Don't deselect on internal init calls
-                 noduleButtons.forEach(btn => btn.classList.remove('selected'));
-                 selectedNoduleRadius = null; // Clear selection on full reset
-                 startButton.disabled = true;
-            }
-            temperatureValueSpan.textContent = '--';
-            impedanceValueSpan.textContent = '--';
-            depthValueSpan.textContent = '-- / --';
-            adequatePercentSpan.textContent = '0';
-            incompletePercentSpan.textContent = '0';
-            excessivePercentSpan.textContent = '0';
-            untouchedPercentSpan.textContent = '100';
-            scoreSpan.textContent = '0';
-
-            updateMetrics();
-            draw(); // Draw initial state
-            hideMessage();
+            criticalStructures = [ { x: anatomyCanvas.width * 0.3, y: 20, width: 40, height: 60, name: 'Vessel' }, { x: anatomyCanvas.width * 0.6, y: 20, width: 50, height: 60, name: 'Trachea' }];
+            rfButton.textContent = 'RF OFF'; rfButton.classList.remove('on'); rfButton.disabled = true;
+            powerSlider.disabled = true; resetButton.disabled = true; powerSlider.value = power; powerValueSpan.textContent = power;
+            noduleButtons.forEach(btn => btn.disabled = false);
+            if (!isReset) { noduleButtons.forEach(btn => btn.classList.remove('selected')); selectedNoduleRadius = null; startButton.disabled = true; }
+            temperatureValueSpan.textContent = '--'; impedanceValueSpan.textContent = '--'; depthValueSpan.textContent = '-- / --';
+            adequatePercentSpan.textContent = '0'; incompletePercentSpan.textContent = '0'; excessivePercentSpan.textContent = '0'; untouchedPercentSpan.textContent = '100'; scoreSpan.textContent = '0';
+            updateMetrics(); draw(); hideMessage();
         }
 
-        // Function to create nodule/voxels after size selection
         function createNoduleAndVoxels() {
-             if (!selectedNoduleRadius) return; // Safety check
-
+             if (!selectedNoduleRadius) return;
              const noduleRadius = selectedNoduleRadius;
              const noduleCenterX = ultrasoundCanvas.width / 2;
              const noduleCenterY = Math.max(noduleRadius + 20, Math.min(ultrasoundCanvas.height - noduleRadius - 20, ultrasoundCanvas.height / 1.8));
              nodule = { x: noduleCenterX, y: noduleCenterY, radius: noduleRadius };
              maxSlices = Math.max(3, Math.ceil(noduleRadius / (voxelSize * 2)));
              currentSlice = Math.floor(maxSlices / 2);
-             voxels = []; // Clear previous voxels
-             totalNoduleVoxels = 0;
-
+             voxels = []; totalNoduleVoxels = 0;
              for (let z = 0; z < maxSlices; z++) {
                  const sliceRatio = 1 - Math.abs(z - currentSlice) / (maxSlices / 2);
                  const sliceRadius = noduleRadius * Math.sqrt(Math.max(0, sliceRatio));
@@ -366,51 +322,46 @@
                          const dx = (x + voxelSize / 2) - noduleCenterX;
                          const dy = (y + voxelSize / 2) - noduleCenterY;
                          if (dx * dx + dy * dy <= sliceRadius * sliceRadius) {
-                             voxels.push({ x: x, y: y, z: z, size: voxelSize, state: STATE_UNTOUCHED, ablationProgress: 0 });
+                             voxels.push({
+                                 x: x, y: y, z: z, size: voxelSize,
+                                 state: STATE_UNTOUCHED, ablationProgress: 0,
+                                 temperature: BODY_TEMP, // Initialize temp
+                                 impedance: BASE_IMPEDANCE // Initialize impedance
+                                });
                              totalNoduleVoxels++;
                          }
                      }
                  }
              }
-             updateMetrics(); // Update display after creating voxels
-             draw(); // Redraw needed to show the nodule
+             updateMetrics(); draw();
         }
-
 
         // --- Helper Function for Tip Conditions ---
         function calculateTipConditions() {
             if (needleState !== 'inserted') return { temperature: BODY_TEMP, impedance: BASE_IMPEDANCE };
-            let nearbyVoxelsProgressSum = 0, nearbyVoxelsCount = 0;
+            let tempSum = 0, impedanceSum = 0, nearbyVoxelsCount = 0;
+            // Average temp/impedance of voxels near the tip on the current slice
             voxels.filter(voxel => voxel.z === currentSlice).forEach(voxel => {
                 const dx = (voxel.x + voxel.size / 2) - needlePos.x;
                 const dy = (voxel.y + voxel.size / 2) - needlePos.y;
                 if (Math.sqrt(dx * dx + dy * dy) < TIP_CONDITION_RADIUS) {
-                    nearbyVoxelsProgressSum += voxel.ablationProgress; nearbyVoxelsCount++;
+                    tempSum += voxel.temperature;
+                    impedanceSum += voxel.impedance;
+                    nearbyVoxelsCount++;
                 }
             });
-            const averageProgress = nearbyVoxelsCount > 0 ? nearbyVoxelsProgressSum / nearbyVoxelsCount : 0;
-            let calculatedTemp = BODY_TEMP, calculatedImpedance = BASE_IMPEDANCE;
-            if (averageProgress <= ADEQUATE_THRESHOLD) {
-                calculatedTemp = BODY_TEMP + (EFFECTIVE_TEMP_THRESHOLD - BODY_TEMP) * (averageProgress / ADEQUATE_THRESHOLD);
-                calculatedImpedance = BASE_IMPEDANCE + (IMPEDANCE_AT_ADEQUATE - BASE_IMPEDANCE) * (averageProgress / ADEQUATE_THRESHOLD);
-            } else if (averageProgress < EXCESSIVE_THRESHOLD) {
-                calculatedTemp = EFFECTIVE_TEMP_THRESHOLD + (MAX_TEMP - EFFECTIVE_TEMP_THRESHOLD) * ((averageProgress - ADEQUATE_THRESHOLD) / (EXCESSIVE_THRESHOLD - ADEQUATE_THRESHOLD));
-                calculatedImpedance = IMPEDANCE_AT_ADEQUATE + (MAX_IMPEDANCE - IMPEDANCE_AT_ADEQUATE) * ((averageProgress - ADEQUATE_THRESHOLD) / (EXCESSIVE_THRESHOLD - ADEQUATE_THRESHOLD));
-            } else { calculatedTemp = MAX_TEMP; calculatedImpedance = MAX_IMPEDANCE; }
-            calculatedTemp = Math.max(BODY_TEMP, Math.min(MAX_TEMP, calculatedTemp));
-            calculatedImpedance = Math.max(BASE_IMPEDANCE, Math.min(MAX_IMPEDANCE, calculatedImpedance));
-            return { temperature: calculatedTemp, impedance: calculatedImpedance };
+            const avgTemp = nearbyVoxelsCount > 0 ? tempSum / nearbyVoxelsCount : BODY_TEMP;
+            const avgImpedance = nearbyVoxelsCount > 0 ? impedanceSum / nearbyVoxelsCount : BASE_IMPEDANCE;
+            return { temperature: avgTemp, impedance: avgImpedance };
         }
-
 
         // --- Drawing Functions ---
         function drawUltrasound() {
             usCtx.clearRect(0, 0, ultrasoundCanvas.width, ultrasoundCanvas.height);
             usCtx.strokeStyle = '#4a4a7f'; usCtx.lineWidth = 2; usCtx.strokeRect(0, 0, ultrasoundCanvas.width, ultrasoundCanvas.height);
-
-            // Draw nodule voxels and outline only if nodule exists
             if (nodule) {
                  voxels.filter(voxel => voxel.z === currentSlice).forEach(voxel => {
+                    // Optional: Slightly vary color based on voxel temp? For now, just use state.
                     switch (voxel.state) {
                         case STATE_INCOMPLETE: usCtx.fillStyle = 'rgba(231, 76, 60, 0.7)'; break;
                         case STATE_ADEQUATE: usCtx.fillStyle = 'rgba(46, 204, 113, 0.7)'; break;
@@ -422,278 +373,212 @@
                 });
                  const sliceRatio = 1 - Math.abs(currentSlice - Math.floor(maxSlices / 2)) / (maxSlices / 2);
                  const sliceRadius = nodule.radius * Math.sqrt(Math.max(0, sliceRatio));
-                 if (sliceRadius > 0) {
-                    usCtx.strokeStyle = '#3498db'; usCtx.lineWidth = 1; usCtx.setLineDash([5, 5]);
-                    usCtx.beginPath(); usCtx.arc(nodule.x, nodule.y, sliceRadius, 0, Math.PI * 2); usCtx.stroke();
-                    usCtx.setLineDash([]);
-                 }
+                 if (sliceRadius > 0) { usCtx.strokeStyle = '#3498db'; usCtx.lineWidth = 1; usCtx.setLineDash([5, 5]); usCtx.beginPath(); usCtx.arc(nodule.x, nodule.y, sliceRadius, 0, Math.PI * 2); usCtx.stroke(); usCtx.setLineDash([]); }
             }
-
-            // Draw Needle only if inserted
             if (needleState === 'inserted' && pivotPoint) {
-                usCtx.strokeStyle = '#bdc3c7'; usCtx.lineWidth = 2;
-                usCtx.beginPath(); usCtx.moveTo(pivotPoint.x, pivotPoint.y); usCtx.lineTo(needlePos.x, needlePos.y); usCtx.stroke();
+                usCtx.strokeStyle = '#bdc3c7'; usCtx.lineWidth = 2; usCtx.beginPath(); usCtx.moveTo(pivotPoint.x, pivotPoint.y); usCtx.lineTo(needlePos.x, needlePos.y); usCtx.stroke();
                 usCtx.fillStyle = '#f1c40f'; usCtx.beginPath(); usCtx.arc(needlePos.x, needlePos.y, 5, 0, Math.PI * 2); usCtx.fill();
                 if (rfActive) {
+                    // Calculate dynamic heat radius based on power
+                    const powerScale = (power - 10) / (100 - 10); // Scale power 0-1
+                    const currentHeatSpreadRadius = BASE_HEAT_SPREAD_RADIUS * (0.75 + powerScale * 0.5); // Scale radius (e.g., 0.75x to 1.25x)
                     usCtx.fillStyle = 'rgba(255, 255, 0, 0.15)';
-                    usCtx.beginPath(); usCtx.arc(needlePos.x, needlePos.y, HEAT_SPREAD_RADIUS, 0, Math.PI * 2); usCtx.fill();
+                    usCtx.beginPath(); usCtx.arc(needlePos.x, needlePos.y, currentHeatSpreadRadius, 0, Math.PI * 2); usCtx.fill();
                 }
             } else if (needleState === 'awaiting_insertion_angle' && pivotPoint) {
-                 // Draw a ghost needle or indicator before insertion angle is set? Optional.
-                 usCtx.strokeStyle = 'rgba(189, 195, 199, 0.5)'; // Lighter gray, semi-transparent
-                 usCtx.lineWidth = 2;
-                 usCtx.beginPath(); usCtx.moveTo(pivotPoint.x, pivotPoint.y); usCtx.lineTo(pivotPoint.x, pivotPoint.y + 50); usCtx.stroke(); // Example line
+                 usCtx.strokeStyle = 'rgba(189, 195, 199, 0.5)'; usCtx.lineWidth = 2; usCtx.beginPath(); usCtx.moveTo(pivotPoint.x, pivotPoint.y); usCtx.lineTo(pivotPoint.x, pivotPoint.y + 50); usCtx.stroke();
             } else if (needleState === 'awaiting_entry_point') {
-                 usCtx.fillStyle = '#555'; usCtx.font = "14px 'Press Start 2P'"; usCtx.textAlign = 'center';
-                 usCtx.fillText("Select Entry Point on Anatomy View", ultrasoundCanvas.width / 2, ultrasoundCanvas.height / 2);
+                 usCtx.fillStyle = '#555'; usCtx.font = "14px 'Press Start 2P'"; usCtx.textAlign = 'center'; usCtx.fillText("Select Entry Point on Anatomy View", ultrasoundCanvas.width / 2, ultrasoundCanvas.height / 2);
             }
         }
-
-        function drawAnatomy() {
+        function drawAnatomy() { // Unchanged from previous version
             anCtx.clearRect(0, 0, anatomyCanvas.width, anatomyCanvas.height);
             anCtx.strokeStyle = '#4a4a7f'; anCtx.lineWidth = 2; anCtx.strokeRect(0, 0, anatomyCanvas.width, anatomyCanvas.height);
             anCtx.strokeStyle = '#7f8c8d'; anCtx.lineWidth = 1; anCtx.strokeRect(anatomyCanvas.width * 0.1, 10, anatomyCanvas.width * 0.8, anatomyCanvas.height - 20);
-            criticalStructures.forEach(struct => {
-                anCtx.fillStyle = '#c0392b'; anCtx.fillRect(struct.x, struct.y, struct.width, struct.height);
-                anCtx.fillStyle = '#fff'; anCtx.font = "10px 'Press Start 2P'"; anCtx.textAlign = 'center';
-                anCtx.fillText(struct.name, struct.x + struct.width / 2, struct.y + struct.height / 2 + 5);
-            });
-            if (needleState === 'inserted' && pivotPoint) {
-                const anatomyNeedleX = (needlePos.x / ultrasoundCanvas.width) * (anatomyCanvas.width * 0.8) + (anatomyCanvas.width * 0.1);
-                anCtx.fillStyle = '#f1c40f'; anCtx.fillRect(anatomyNeedleX - 2, 0, 4, anatomyCanvas.height);
-            }
-            if (entryPoint) { // Draw entry point marker if it exists
-                anCtx.fillStyle = '#16a085'; anCtx.beginPath(); anCtx.arc(entryPoint.x, entryPoint.y, 5, 0, Math.PI * 2); anCtx.fill();
-                anCtx.strokeStyle = '#fff'; anCtx.lineWidth = 1; anCtx.stroke();
-            }
+            criticalStructures.forEach(struct => { anCtx.fillStyle = '#c0392b'; anCtx.fillRect(struct.x, struct.y, struct.width, struct.height); anCtx.fillStyle = '#fff'; anCtx.font = "10px 'Press Start 2P'"; anCtx.textAlign = 'center'; anCtx.fillText(struct.name, struct.x + struct.width / 2, struct.y + struct.height / 2 + 5); });
+            if (needleState === 'inserted' && pivotPoint) { const anatomyNeedleX = (needlePos.x / ultrasoundCanvas.width) * (anatomyCanvas.width * 0.8) + (anatomyCanvas.width * 0.1); anCtx.fillStyle = '#f1c40f'; anCtx.fillRect(anatomyNeedleX - 2, 0, 4, anatomyCanvas.height); }
+            if (entryPoint) { anCtx.fillStyle = '#16a085'; anCtx.beginPath(); anCtx.arc(entryPoint.x, entryPoint.y, 5, 0, Math.PI * 2); anCtx.fill(); anCtx.strokeStyle = '#fff'; anCtx.lineWidth = 1; anCtx.stroke(); }
         }
-
         function draw() {
-             // Keep drawing as long as the game hasn't fully reset to idle OR is in selecting_entry/awaiting_insertion_angle
              if (gameActive || needleState === 'awaiting_entry_point' || needleState === 'awaiting_insertion_angle') {
-                 drawUltrasound();
-                 drawAnatomy();
-                 animationFrameId = requestAnimationFrame(draw);
-             } else {
-                 // If idle, draw one last time to clear things, then stop
-                 drawUltrasound();
-                 drawAnatomy();
-                 if (animationFrameId) cancelAnimationFrame(animationFrameId);
-                 animationFrameId = null;
-             }
+                 drawUltrasound(); drawAnatomy(); animationFrameId = requestAnimationFrame(draw);
+             } else { drawUltrasound(); drawAnatomy(); if (animationFrameId) cancelAnimationFrame(animationFrameId); animationFrameId = null; }
         }
 
         // --- Game Logic ---
-        function updateMetrics() {
+        function updateMetrics() { // Mostly unchanged, reads calculated tip conditions
             let adequateP = 0, incompleteP = 0, excessiveP = 0, untouchedP = 100;
-            if (totalNoduleVoxels > 0) {
-                let adequateCount = 0, incompleteCount = 0, excessiveCount = 0;
-                voxels.forEach(voxel => {
-                    if (voxel.state === STATE_ADEQUATE) adequateCount++;
-                    else if (voxel.state === STATE_INCOMPLETE) incompleteCount++;
-                    else if (voxel.state === STATE_EXCESSIVE) excessiveCount++;
-                });
-                const calcPercent = (count) => Math.round((count / totalNoduleVoxels) * 100);
-                adequateP = calcPercent(adequateCount);
-                incompleteP = calcPercent(incompleteCount);
-                excessiveP = calcPercent(excessiveCount);
-                untouchedP = Math.max(0, 100 - adequateP - incompleteP - excessiveP);
-            }
-            adequatePercentSpan.textContent = adequateP; incompletePercentSpan.textContent = incompleteP;
-            excessivePercentSpan.textContent = excessiveP; untouchedPercentSpan.textContent = untouchedP;
-
-            if (needleState === 'inserted') {
-                const tipConditions = calculateTipConditions();
-                temperatureValueSpan.textContent = tipConditions.temperature.toFixed(1);
-                impedanceValueSpan.textContent = Math.round(tipConditions.impedance);
-                depthValueSpan.textContent = `${currentSlice + 1} / ${maxSlices}`;
-            } else {
-                temperatureValueSpan.textContent = '--'; impedanceValueSpan.textContent = '--'; depthValueSpan.textContent = '-- / --';
-            }
+            if (totalNoduleVoxels > 0) { let adequateCount = 0, incompleteCount = 0, excessiveCount = 0; voxels.forEach(voxel => { if (voxel.state === STATE_ADEQUATE) adequateCount++; else if (voxel.state === STATE_INCOMPLETE) incompleteCount++; else if (voxel.state === STATE_EXCESSIVE) excessiveCount++; }); const calcPercent = (count) => Math.round((count / totalNoduleVoxels) * 100); adequateP = calcPercent(adequateCount); incompleteP = calcPercent(incompleteCount); excessiveP = calcPercent(excessiveCount); untouchedP = Math.max(0, 100 - adequateP - incompleteP - excessiveP); }
+            adequatePercentSpan.textContent = adequateP; incompletePercentSpan.textContent = incompleteP; excessivePercentSpan.textContent = excessiveP; untouchedPercentSpan.textContent = untouchedP;
+            if (needleState === 'inserted') { const tipConditions = calculateTipConditions(); temperatureValueSpan.textContent = tipConditions.temperature.toFixed(1); impedanceValueSpan.textContent = Math.round(tipConditions.impedance); depthValueSpan.textContent = `${currentSlice + 1} / ${maxSlices}`; }
+            else { temperatureValueSpan.textContent = '--'; impedanceValueSpan.textContent = '--'; depthValueSpan.textContent = '-- / --'; }
             score = adequateP * 10 - excessiveP * 5; scoreSpan.textContent = score;
         }
 
-        function applyAblation() {
-            if (!rfActive || !gameActive || needleState !== 'inserted') return;
-            const currentTipConditions = calculateTipConditions();
-            const currentTipTemperature = currentTipConditions.temperature;
-            let tempEffectiveness = Math.max(0, Math.min(1, (currentTipTemperature - BODY_TEMP) / (EFFECTIVE_TEMP_THRESHOLD - BODY_TEMP)));
+        // New function to update temperature and impedance for all relevant voxels
+        function updateVoxelTemperaturesAndImpedance() {
+             if (!gameActive || needleState !== 'inserted') return;
+
+             // Calculate dynamic heat radius based on power
+             const powerScale = (power - 10) / (100 - 10); // Scale power 0-1
+             const currentHeatSpreadRadius = BASE_HEAT_SPREAD_RADIUS * (0.75 + powerScale * 0.5); // Scale radius (e.g., 0.75x to 1.25x)
+
+             // Iterate through voxels ON THE CURRENT SLICE for heating/cooling
+             voxels.filter(voxel => voxel.z === currentSlice).forEach(voxel => {
+                 let heatedThisTick = false;
+                 if (rfActive) {
+                     const dx = (voxel.x + voxel.size / 2) - needlePos.x;
+                     const dy = (voxel.y + voxel.size / 2) - needlePos.y;
+                     const distance = Math.sqrt(dx * dx + dy * dy);
+
+                     if (distance < currentHeatSpreadRadius) {
+                         // Heat input decreases with distance
+                         const heatFactor = Math.max(0, 1 - (distance / currentHeatSpreadRadius));
+                         // Increase temperature based on heat factor, power scaling, and base rate
+                         voxel.temperature += heatFactor * (power / 50) * TEMP_INCREASE_RATE;
+                         voxel.temperature = Math.min(MAX_TEMP, voxel.temperature); // Clamp at max temp
+                         heatedThisTick = true;
+                     }
+                 }
+
+                 // Apply cooling if not heated or always apply some cooling (more realistic)
+                 if (!heatedThisTick) { // Simple model: only cool if not heated
+                     voxel.temperature -= TEMP_DECREASE_RATE;
+                     voxel.temperature = Math.max(BODY_TEMP, voxel.temperature); // Clamp at body temp
+                 }
+                 // --- Alternative: Always apply cooling ---
+                 // voxel.temperature -= TEMP_DECREASE_RATE;
+                 // voxel.temperature = Math.max(BODY_TEMP, voxel.temperature);
+
+                 // Update impedance based on the voxel's current temperature
+                 // Map temperature range (BODY_TEMP to MAX_TEMP) -> (BASE_IMPEDANCE to MAX_IMPEDANCE)
+                 // Simple linear mapping for now
+                 if (voxel.temperature <= BODY_TEMP) {
+                     voxel.impedance = BASE_IMPEDANCE;
+                 } else if (voxel.temperature >= MAX_TEMP) {
+                     voxel.impedance = MAX_IMPEDANCE;
+                 } else {
+                     const tempRatio = (voxel.temperature - BODY_TEMP) / (MAX_TEMP - BODY_TEMP);
+                     // Could make this non-linear, e.g., impedance rises sharply near MAX_TEMP
+                     voxel.impedance = BASE_IMPEDANCE + (MAX_IMPEDANCE - BASE_IMPEDANCE) * tempRatio;
+                 }
+                 voxel.impedance = Math.round(Math.max(BASE_IMPEDANCE, Math.min(MAX_IMPEDANCE, voxel.impedance)));
+             });
+        }
+
+        // Renamed from applyAblation - now just updates progress based on temp
+        function updateAblationProgress() {
+            if (!gameActive || needleState !== 'inserted') return;
+
             voxels.filter(voxel => voxel.z === currentSlice).forEach(voxel => {
-                const dx = (voxel.x + voxel.size / 2) - needlePos.x, dy = (voxel.y + voxel.size / 2) - needlePos.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance < HEAT_SPREAD_RADIUS) {
-                    const heatFactor = Math.max(0, 1 - (distance / HEAT_SPREAD_RADIUS));
-                    voxel.ablationProgress += heatFactor * (power / 50) * tempEffectiveness * ABLATION_RATE_FACTOR;
-                    if (voxel.ablationProgress >= EXCESSIVE_THRESHOLD) voxel.state = STATE_EXCESSIVE;
-                    else if (voxel.ablationProgress >= ADEQUATE_THRESHOLD) voxel.state = STATE_ADEQUATE;
-                    else if (voxel.ablationProgress >= INCOMPLETE_THRESHOLD) voxel.state = STATE_INCOMPLETE;
-                }
+                 // Only accumulate ablation progress if temperature is above threshold
+                 if (voxel.temperature >= EFFECTIVE_TEMP_THRESHOLD) {
+                     // Increase progress based on how hot it is (scaled) and rate factor
+                     const tempEffectiveness = (voxel.temperature - EFFECTIVE_TEMP_THRESHOLD) / (MAX_TEMP - EFFECTIVE_TEMP_THRESHOLD);
+                     voxel.ablationProgress += Math.max(0, tempEffectiveness) * ABLATION_RATE_FACTOR;
+                 }
+
+                 // Update voxel state based on accumulated progress
+                 if (voxel.ablationProgress >= EXCESSIVE_THRESHOLD) voxel.state = STATE_EXCESSIVE;
+                 else if (voxel.ablationProgress >= ADEQUATE_THRESHOLD) voxel.state = STATE_ADEQUATE;
+                 else if (voxel.ablationProgress >= INCOMPLETE_THRESHOLD) voxel.state = STATE_INCOMPLETE;
             });
+
+            // --- Complication Checks (remain the same) ---
              let isNearCritical = false, isOutsideTarget = false, warningMsg = '';
              const anatomyNeedleX = (needlePos.x / ultrasoundCanvas.width) * (anatomyCanvas.width * 0.8) + (anatomyCanvas.width * 0.1);
              criticalStructures.forEach(struct => { if (anatomyNeedleX >= struct.x && anatomyNeedleX <= struct.x + struct.width) { isNearCritical = true; warningMsg = `WARNING: Needle near ${struct.name}!`; }});
              const sliceRatio = 1 - Math.abs(currentSlice - Math.floor(maxSlices / 2)) / (maxSlices / 2);
              const sliceRadius = nodule.radius * Math.sqrt(Math.max(0, sliceRatio));
              const distFromNoduleCenter = Math.sqrt(Math.pow(needlePos.x - nodule.x, 2) + Math.pow(needlePos.y - nodule.y, 2));
-             const safeRadius = sliceRadius + HEAT_SPREAD_RADIUS;
-             if (distFromNoduleCenter > safeRadius) { isOutsideTarget = true; if (!isNearCritical) warningMsg = 'WARNING: Needle outside target zone!'; }
+             const safeRadius = sliceRadius + BASE_HEAT_SPREAD_RADIUS * 1.25; // Use max potential radius for safety check
+             if (distFromNoduleCenter > safeRadius && rfActive) { // Only warn if RF is active outside zone
+                  isOutsideTarget = true; if (!isNearCritical) warningMsg = 'WARNING: Ablating outside target zone!';
+             }
              warningArea.textContent = warningMsg;
         }
+
 
         let gameLogicInterval = null;
         function gameLoop() {
             if (!gameActive) { if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; } return; }
-            applyAblation(); updateMetrics();
+            updateVoxelTemperaturesAndImpedance(); // Update temps/impedances first
+            updateAblationProgress(); // Then update progress based on new temps
+            updateMetrics(); // Finally update display
         }
 
         function startGame() {
             if (gameActive || needleState !== 'idle' || !selectedNoduleRadius) return;
-            needleState = 'awaiting_entry_point';
-            instructionText.textContent = 'Click Anatomy View to Select Entry Point';
+            needleState = 'awaiting_entry_point'; instructionText.textContent = 'Click Anatomy View to Select Entry Point';
             startButton.disabled = true; resetButton.disabled = false; noduleButtons.forEach(btn => btn.disabled = true);
-            // Ensure drawing continues for entry point selection
             if (!animationFrameId) animationFrameId = requestAnimationFrame(draw);
         }
 
-        // Function to reset needle state for re-insertion
         function resetForReEntry() {
-             gameActive = false; // Stop ablation logic
-             rfActive = false;
-             needleState = 'awaiting_entry_point';
-             entryPoint = null; // Clear previous entry point
-             pivotPoint = null;
-             initialInsertionAngle = null;
-             needlePos = { x: -100, y: -100 }; // Move needle off-screen
-             instructionText.textContent = 'Needle Retracted. Select New Entry Point.';
-             rfButton.disabled = true; rfButton.classList.remove('on');
-             powerSlider.disabled = true;
-             warningArea.textContent = '';
-             if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; }
-             updateMetrics(); // Update display (temp/impedance should go to --)
-             draw(); // Redraw to remove needle and marker
+             gameActive = false; rfActive = false; needleState = 'awaiting_entry_point';
+             entryPoint = null; pivotPoint = null; initialInsertionAngle = null;
+             needlePos = { x: -100, y: -100 }; instructionText.textContent = 'Needle Retracted. Select New Entry Point.';
+             rfButton.disabled = true; rfButton.classList.remove('on'); powerSlider.disabled = true;
+             warningArea.textContent = ''; if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; }
+             // Don't reset voxel temps/progress when just re-entering
+             updateMetrics(); draw();
         }
 
-        function endGame(manualReset = false) {
+        function endGame(manualReset = false) { // Mostly unchanged
              gameActive = false; rfActive = false;
              if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; }
              if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
-
             if (!manualReset && totalNoduleVoxels > 0) {
-                let adequateCount = 0, incompleteCount = 0, excessiveCount = 0;
-                voxels.forEach(voxel => {
-                    if (voxel.state === STATE_ADEQUATE) adequateCount++;
-                    else if (voxel.state === STATE_INCOMPLETE) incompleteCount++;
-                    else if (voxel.state === STATE_EXCESSIVE) excessiveCount++;
-                });
-                const adequateP = Math.round((adequateCount / totalNoduleVoxels) * 100);
-                const incompleteP = Math.round((incompleteCount / totalNoduleVoxels) * 100);
-                const excessiveP = Math.round((excessiveCount / totalNoduleVoxels) * 100);
-                let finalScore = adequateP * 10 - incompleteP * 10 - excessiveP * 15; finalScore = Math.max(0, finalScore);
-                scoreSpan.textContent = finalScore;
-                let message = "Procedure Complete!"; message += `\n\nFinal Score: ${finalScore}\n--------------\nAdequate: ${adequateP}%\nIncomplete: ${incompleteP}%\nExcessive: ${excessiveP}%`;
-                showMessage(message);
+                let adequateCount = 0, incompleteCount = 0, excessiveCount = 0; voxels.forEach(voxel => { if (voxel.state === STATE_ADEQUATE) adequateCount++; else if (voxel.state === STATE_INCOMPLETE) incompleteCount++; else if (voxel.state === STATE_EXCESSIVE) excessiveCount++; }); const adequateP = Math.round((adequateCount / totalNoduleVoxels) * 100); const incompleteP = Math.round((incompleteCount / totalNoduleVoxels) * 100); const excessiveP = Math.round((excessiveCount / totalNoduleVoxels) * 100); let finalScore = adequateP * 10 - incompleteP * 10 - excessiveP * 15; finalScore = Math.max(0, finalScore); scoreSpan.textContent = finalScore; let message = "Procedure Complete!"; message += `\n\nFinal Score: ${finalScore}\n--------------\nAdequate: ${adequateP}%\nIncomplete: ${incompleteP}%\nExcessive: ${excessiveP}%`; showMessage(message);
             }
-
-            // Full reset via Reset Button
-            if (manualReset) {
-                 hideMessage();
-                 selectedNoduleRadius = null; // Clear size selection on full reset
-                 initGame(true); // Call init with reset flag
-            } else {
-                 // If ended naturally (e.g., win condition added later), might behave differently
-                 // For now, just stop the game and show score. Reset button handles full reset.
-                 rfButton.disabled = true;
-                 powerSlider.disabled = true;
-                 resetButton.disabled = false; // Allow reset
-                 startButton.disabled = true; // Must reset
-                 noduleButtons.forEach(btn => btn.disabled = true); // Keep disabled
-            }
+            if (manualReset) { hideMessage(); selectedNoduleRadius = null; initGame(true); }
+            else { rfButton.disabled = true; powerSlider.disabled = true; resetButton.disabled = false; startButton.disabled = true; noduleButtons.forEach(btn => btn.disabled = true); }
         }
 
         function showMessage(msg) { messageText.innerText = msg; messageBox.style.display = 'block'; }
         function hideMessage() { messageBox.style.display = 'none'; }
-        function toggleRF() {
-            if (!gameActive || needleState !== 'inserted') return;
-            rfActive = !rfActive; rfButton.textContent = rfActive ? 'RF ON' : 'RF OFF'; rfButton.classList.toggle('on', rfActive);
-            if (!rfActive) warningArea.textContent = '';
-        }
+        function toggleRF() { if (!gameActive || needleState !== 'inserted') return; rfActive = !rfActive; rfButton.textContent = rfActive ? 'RF ON' : 'RF OFF'; rfButton.classList.toggle('on', rfActive); if (!rfActive) warningArea.textContent = ''; }
 
-        // --- Event Listeners ---
+        // --- Event Listeners --- (Entry, Angle, MouseMove, Keydown, Power, Size, Start, Reset, Close) - Largely unchanged
 
         // Entry Point Selection
         anatomyCanvas.addEventListener('click', (e) => {
             if (needleState !== 'awaiting_entry_point') return;
-            const rect = anatomyCanvas.getBoundingClientRect();
-            entryPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-            const minX = anatomyCanvas.width * 0.1, maxX = anatomyCanvas.width * 0.9;
-            const minY = 10, maxY = anatomyCanvas.height - 10;
+            const rect = anatomyCanvas.getBoundingClientRect(); entryPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            const minX = anatomyCanvas.width * 0.1, maxX = anatomyCanvas.width * 0.9, minY = 10, maxY = anatomyCanvas.height - 10;
             entryPoint.x = Math.max(minX, Math.min(maxX, entryPoint.x)); entryPoint.y = Math.max(minY, Math.min(maxY, entryPoint.y));
             pivotPoint = { x: (entryPoint.x / anatomyCanvas.width) * ultrasoundCanvas.width, y: 15 };
-            needleState = 'awaiting_insertion_angle';
-            instructionText.textContent = 'Click Ultrasound View to Set Insertion Angle';
-            drawAnatomy(); // Show marker
-            drawUltrasound(); // Update US view prompt/state
+            needleState = 'awaiting_insertion_angle'; instructionText.textContent = 'Click Ultrasound View to Set Insertion Angle';
+            drawAnatomy(); drawUltrasound();
         });
 
         // Insertion Angle Selection
         ultrasoundCanvas.addEventListener('click', (e) => {
              if (needleState !== 'awaiting_insertion_angle' || !pivotPoint) return;
-             const rect = ultrasoundCanvas.getBoundingClientRect();
-             const clickX = e.clientX - rect.left;
-             const clickY = e.clientY - rect.top;
-             const dx = clickX - pivotPoint.x;
-             const dy = clickY - pivotPoint.y;
-
-             initialInsertionAngle = Math.atan2(dy, dx);
-             // Clamp initial angle to reasonable range
-             initialInsertionAngle = Math.max(0.1, Math.min(Math.PI - 0.1, initialInsertionAngle));
-             needleAngle = initialInsertionAngle;
-             needleLength = retractionThreshold + 5; // Insert slightly past retraction threshold
-             needlePos.x = pivotPoint.x + Math.cos(needleAngle) * needleLength;
-             needlePos.y = pivotPoint.y + Math.sin(needleAngle) * needleLength;
-
-             needleState = 'inserted';
-             instructionText.textContent = 'Needle Inserted. Aim and Ablate.';
-             gameActive = true; // Start ablation logic
-             rfButton.disabled = false; powerSlider.disabled = false; // Enable controls
-
-             if (gameLogicInterval) clearInterval(gameLogicInterval);
-             gameLogicInterval = setInterval(gameLoop, 50); // Start game logic updates
-             if (!animationFrameId) animationFrameId = requestAnimationFrame(draw); // Ensure drawing is running
+             const rect = ultrasoundCanvas.getBoundingClientRect(); const clickX = e.clientX - rect.left; const clickY = e.clientY - rect.top;
+             const dx = clickX - pivotPoint.x; const dy = clickY - pivotPoint.y;
+             initialInsertionAngle = Math.atan2(dy, dx); initialInsertionAngle = Math.max(0.1, Math.min(Math.PI - 0.1, initialInsertionAngle));
+             needleAngle = initialInsertionAngle; needleLength = retractionThreshold + 5;
+             needlePos.x = pivotPoint.x + Math.cos(needleAngle) * needleLength; needlePos.y = pivotPoint.y + Math.sin(needleAngle) * needleLength;
+             needleState = 'inserted'; instructionText.textContent = 'Needle Inserted. Aim and Ablate.'; gameActive = true;
+             rfButton.disabled = false; powerSlider.disabled = false;
+             if (gameLogicInterval) clearInterval(gameLogicInterval); gameLogicInterval = setInterval(gameLoop, 50);
+             if (!animationFrameId) animationFrameId = requestAnimationFrame(draw);
         });
 
-
-        // Needle Control (Length + Limited Angle)
+        // Needle Control
         ultrasoundCanvas.addEventListener('mousemove', (e) => {
             if (!gameActive || needleState !== 'inserted' || !pivotPoint) return;
-            const rect = ultrasoundCanvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top;
+            const rect = ultrasoundCanvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top;
             const dx = mouseX - pivotPoint.x; const dy = mouseY - pivotPoint.y;
-            let desiredAngle = Math.atan2(dy, dx);
-            let desiredLength = Math.sqrt(dx*dx + dy*dy);
-
-            // Check for retraction *before* updating position
-            if (desiredLength < retractionThreshold) {
-                 resetForReEntry(); // Reset state to allow new entry point selection
-                 return; // Stop processing this move event
-            }
-
-            needleLength = desiredLength; // Update length first
-
-            // Limit angle deviation based on initial insertion angle
-            if (initialInsertionAngle !== null) {
-                let angleDiff = desiredAngle - initialInsertionAngle;
-                while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI; while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                angleDiff = Math.max(-angleLimit, Math.min(angleLimit, angleDiff));
-                needleAngle = initialInsertionAngle + angleDiff;
-            } else { needleAngle = desiredAngle; } // Should not happen if insertion logic is correct, but fallback
-            needleAngle = Math.max(0.1, Math.min(Math.PI - 0.1, needleAngle)); // Clamp overall angle
-
-            // Calculate new tip position
-            needlePos.x = pivotPoint.x + Math.cos(needleAngle) * needleLength;
-            needlePos.y = pivotPoint.y + Math.sin(needleAngle) * needleLength;
-            needlePos.x = Math.max(0, Math.min(ultrasoundCanvas.width, needlePos.x));
-            needlePos.y = Math.max(0, Math.min(ultrasoundCanvas.height, needlePos.y));
+            let desiredAngle = Math.atan2(dy, dx); let desiredLength = Math.sqrt(dx*dx + dy*dy);
+            if (desiredLength < retractionThreshold) { resetForReEntry(); return; }
+            needleLength = desiredLength;
+            if (initialInsertionAngle !== null) { let angleDiff = desiredAngle - initialInsertionAngle; while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI; while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI; angleDiff = Math.max(-angleLimit, Math.min(angleLimit, angleDiff)); needleAngle = initialInsertionAngle + angleDiff; }
+            else { needleAngle = desiredAngle; }
+            needleAngle = Math.max(0.1, Math.min(Math.PI - 0.1, needleAngle));
+            needlePos.x = pivotPoint.x + Math.cos(needleAngle) * needleLength; needlePos.y = pivotPoint.y + Math.sin(needleAngle) * needleLength;
+            needlePos.x = Math.max(0, Math.min(ultrasoundCanvas.width, needlePos.x)); needlePos.y = Math.max(0, Math.min(ultrasoundCanvas.height, needlePos.y));
         });
 
         rfButton.addEventListener('click', toggleRF);
@@ -707,24 +592,18 @@
 
         powerSlider.addEventListener('input', (e) => { if (!gameActive || needleState !== 'inserted') return; power = parseInt(e.target.value); powerValueSpan.textContent = power; });
 
-        // Nodule Size Selection
         noduleButtons.forEach(button => {
             button.addEventListener('click', () => {
-                if (needleState !== 'idle') return; // Can only select size when idle
-                selectedNoduleRadius = parseInt(button.getAttribute('data-size'));
+                if (needleState !== 'idle') return; selectedNoduleRadius = parseInt(button.getAttribute('data-size'));
                 noduleButtons.forEach(btn => btn.classList.remove('selected')); button.classList.add('selected');
-                // Create nodule/voxels and enable start button
-                createNoduleAndVoxels();
-                startButton.disabled = false;
-                instructionText.textContent = 'Click Start Game';
+                createNoduleAndVoxels(); startButton.disabled = false; instructionText.textContent = 'Click Start Game';
             });
         });
 
         startButton.addEventListener('click', startGame);
-        resetButton.addEventListener('click', () => { endGame(true); }); // Full reset
+        resetButton.addEventListener('click', () => { endGame(true); });
         closeMessageButton.addEventListener('click', hideMessage);
 
-        // --- Initial Setup ---
         window.onload = () => { initGame(); };
 
     </script>
