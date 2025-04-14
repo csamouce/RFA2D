@@ -12,8 +12,9 @@
         /* Apply the Roboto font */
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #1a1a2e;
-            color: #e0e0e0;
+            /* Dark charcoal background */
+            background-color: #1f2937; /* Tailwind gray-800 */
+            color: #e5e7eb; /* Tailwind gray-200 */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -23,51 +24,55 @@
         }
         /* Style the canvas elements */
         canvas {
-            background-color: #0f0f1f;
-            border: 2px solid #4a4a7f;
+            /* Darker background for canvases */
+            background-color: #111827; /* Tailwind gray-900 */
+            border: 2px solid #4b5563; /* Tailwind gray-600 */
             border-radius: 8px;
             display: block;
             max-width: 100%;
         }
-        #structureAnatomyCanvas { /* Canvas for entry point selection */
+        #structureAnatomyCanvas {
              cursor: pointer;
         }
-         #sliceAnatomyCanvas { /* Canvas for slice view */
+         #sliceAnatomyCanvas {
              cursor: default;
          }
         #ultrasoundCanvas {
              cursor: crosshair;
-             background-color: #050810; /* Fallback background */
-             border: 2px solid #687088;
+             background-color: #111827; /* Match other canvases */
+             border: 2px solid #4b5563; /* Match other canvases */
         }
 
-        /* Style buttons with arcade feel */
+        /* Style buttons - UF Blue accent */
         button, .nodule-button {
             font-family: 'Roboto', sans-serif;
             font-weight: 700;
-            background-color: #16a085;
+            background-color: #1d4ed8; /* Tailwind blue-700 */
             color: #ffffff;
             padding: 10px 15px;
             border: none;
             border-radius: 5px;
-            box-shadow: 0 4px #117a65;
+            box-shadow: 0 4px #1e3a8a; /* Tailwind blue-800 */
             cursor: pointer;
             transition: all 0.1s ease;
             margin: 5px;
             text-transform: uppercase;
             font-size: 0.9em;
         }
+        button:hover, .nodule-button:hover {
+             background-color: #1e40af; /* Darker blue-800 on hover */
+        }
         button:active, .nodule-button:active {
-            box-shadow: 0 2px #117a65;
+            box-shadow: 0 2px #1e3a8a;
             transform: translateY(2px);
         }
         button:disabled, .nodule-button:disabled {
-            background-color: #555;
-            box-shadow: 0 4px #333;
+            background-color: #4b5563; /* Tailwind gray-600 */
+            box-shadow: 0 4px #374151; /* Tailwind gray-700 */
             cursor: not-allowed;
             opacity: 0.6;
         }
-        /* Style the RF ON button specifically */
+        /* Style the RF ON button specifically (keep red) */
         #rfButton.on {
              background-color: #e74c3c;
              box-shadow: 0 4px #c0392b;
@@ -75,24 +80,33 @@
          #rfButton.on:active {
              box-shadow: 0 2px #c0392b;
          }
-         /* Style for selected nodule button */
+          #rfButton.on:hover {
+             background-color: #c0392b;
+         }
+         /* Style for selected nodule button (UF Orange) */
          .nodule-button.selected {
-            background-color: #f39c12;
-            box-shadow: 0 4px #b87300;
+            background-color: #f97316; /* Tailwind orange-500 */
+            box-shadow: 0 4px #ea580c; /* Tailwind orange-600 */
          }
          .nodule-button.selected:active {
-             box-shadow: 0 2px #b87300;
+             box-shadow: 0 2px #ea580c;
          }
-         /* Style for info/toggle buttons */
-         #toggleObscuringButton, #toggleGridButton { /* Updated selector */
+         .nodule-button.selected:hover {
+             background-color: #ea580c;
+         }
+         /* Style for toggle buttons (use accent blue) */
+         #toggleObscuringButton, #toggleGridButton {
              font-size: 0.8em;
              padding: 5px 10px;
-             background-color: #8e44ad; /* Purple */
-             box-shadow: 0 4px #71368a;
+             background-color: #1d4ed8; /* Tailwind blue-700 */
+             box-shadow: 0 4px #1e3a8a; /* Tailwind blue-800 */
          }
           #toggleObscuringButton:active, #toggleGridButton:active {
-             box-shadow: 0 2px #71368a;
+             box-shadow: 0 2px #1e3a8a;
          }
+          #toggleObscuringButton:hover, #toggleGridButton:hover {
+              background-color: #1e40af; /* Darker blue-800 */
+          }
 
 
         /* Style the message box */
@@ -102,10 +116,10 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background-color: rgba(40, 40, 70, 0.95);
-            color: #f1c40f;
+            background-color: rgba(31, 41, 55, 0.95); /* Tailwind gray-800 */
+            color: #f0f9ff;
             padding: 30px;
-            border: 3px solid #f1c40f;
+            border: 3px solid #60a5fa; /* Tailwind blue-400 */
             border-radius: 10px;
             text-align: left;
             z-index: 100;
@@ -126,36 +140,56 @@
          }
          #messageBox p {
              font-size: 1.0em;
-             color: #e0e0e0;
+             color: #d1d5db;
              margin-bottom: 10px;
          }
-         #messageBox button {
+         #messageBox button { /* Use accent blue for OK button */
              display: block;
              margin: 20px auto 0 auto;
+             background-color: #1d4ed8; /* blue-700 */
+             box-shadow: 0 4px #1e3a8a; /* blue-800 */
          }
+          #messageBox button:hover {
+             background-color: #1e40af; /* blue-800 */
+          }
 
-        /* Style for different ablation states */
-        .status-untouched { color: #95a5a6; } /* Gray */
-        .status-incomplete { color: #e74c3c; } /* Red */
-        .status-adequate { color: #2ecc71; } /* Green */
-        .status-excessive { color: #7f8c8d; } /* Darker Gray */
-        .warning { color: #f39c12; font-weight: bold; } /* Orange for warnings */
-        .instruction { color: #1abc9c; font-size: 1.0em; min-height: 1.2em; } /* Adjusted size */
 
-        /* Container for the game - Wider */
+        /* Style for different ablation states (functional colors unchanged) */
+        .status-untouched { color: #95a5a6; }
+        .status-incomplete { color: #e74c3c; }
+        .status-adequate { color: #2ecc71; }
+        .status-excessive { color: #7f8c8d; }
+        .warning { color: #f97316; font-weight: bold; } /* UF Orange */
+        .instruction { color: #60a5fa; font-size: 1.0em; min-height: 1.2em; } /* Lighter Blue */
+
+        /* Container for the game */
         .game-container {
-            background-color: #2c2c54;
+            background-color: #374151; /* Tailwind gray-700 */
             padding: 20px;
             border-radius: 15px;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
             max-width: 95%;
             width: 1200px;
         }
+        /* Inner panel backgrounds */
+        .panel {
+             background-color: #1f2937; /* Tailwind gray-800 */
+             padding: 0.5rem; /* p-2 */
+             border-radius: 0.5rem; /* rounded */
+             box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06); /* shadow */
+        }
+         .panel-lg { /* Larger padding for controls panel */
+             background-color: #1f2937; /* Tailwind gray-800 */
+             padding: 1rem; /* p-4 */
+             border-radius: 0.5rem; /* rounded */
+             box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06); /* shadow */
+        }
+
         /* Ensure range input looks consistent */
         input[type=range] {
             height: 10px;
             cursor: pointer;
-            background: #4a4a7f;
+            background: #4b5563; /* Tailwind gray-600 */
             border-radius: 5px;
             appearance: none;
             -webkit-appearance: none;
@@ -166,13 +200,13 @@
             -webkit-appearance: none;
             height: 20px;
             width: 10px;
-            background: #16a085;
+            background: #1d4ed8; /* UF Blue */
             border-radius: 3px;
         }
         input[type=range]::-moz-range-thumb {
             height: 20px;
             width: 10px;
-            background: #16a085;
+            background: #1d4ed8; /* UF Blue */
             border-radius: 3px;
             border: none;
         }
@@ -183,16 +217,21 @@
         .text-lg { font-size: 1.25rem; line-height: 1.75rem; }
         .text-2xl { font-size: 1.75rem; line-height: 2.1rem; }
 
+        /* Specific Text Color Overrides */
+        .heading-color { color: #f3f4f6; } /* Tailwind gray-100 */
+        .subheading-color { color: #d1d5db; } /* Tailwind gray-300 */
+        .label-color { color: #e5e7eb; } /* Tailwind gray-200 */
+
 
     </style>
 </head>
 <body>
-    <div class="game-container w-full max-w-5xl mx-auto p-4 rounded-lg shadow-lg">
-        <h1 class="text-2xl text-center mb-4 text-teal-300">Nodule Radiofrequency Ablation</h1>
+    <div class="game-container w-full max-w-5xl mx-auto p-4 rounded-lg shadow-lg bg-gray-700">
+        <h1 class="text-2xl text-center mb-4 text-white font-bold">Nodule Radiofrequency Ablation</h1>
 
         <div class="flex flex-wrap justify-center items-center gap-4 mb-6 p-4 bg-gray-800 rounded shadow">
              <div class="text-center">
-                 <h3 class="text-md mb-2 text-yellow-300">Select Nodule Size</h3>
+                 <h3 class="text-md mb-2 subheading-color">Select Nodule Size</h3>
                  <div id="noduleSelection" class="flex justify-center flex-wrap">
                       <button class="nodule-button" data-size="75">3 cm</button>
                       <button class="nodule-button" data-size="100">4 cm</button>
@@ -210,23 +249,23 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-4">
 
             <div class="lg:col-span-2 space-y-4">
-                <div class="bg-gray-800 p-2 rounded shadow">
-                    <h2 class="text-lg text-center mb-2 text-cyan-300">Ultrasound View</h2>
+                <div class="panel">
+                    <h2 class="text-lg text-center mb-2 heading-color">Ultrasound View</h2>
                     <canvas id="ultrasoundCanvas" width="600" height="400"></canvas>
                 </div>
-                <div class="bg-gray-800 p-2 rounded shadow">
-                    <h2 class="text-lg text-center mb-2 text-cyan-300">Simplified Anatomy</h2>
+                <div class="panel">
+                    <h2 class="text-lg text-center mb-2 heading-color">Simplified Anatomy</h2>
                     <canvas id="structureAnatomyCanvas" width="750" height="100"></canvas>
                 </div>
-                 <div class="bg-gray-800 p-2 rounded shadow">
-                    <h2 class="text-lg text-center mb-2 text-cyan-300">Nodule Slices</h2> <canvas id="sliceAnatomyCanvas" width="750" height="100"></canvas> </div>
+                 <div class="panel">
+                    <h2 class="text-lg text-center mb-2 heading-color">Nodule Slices</h2> <canvas id="sliceAnatomyCanvas" width="750" height="100"></canvas> </div>
             </div>
 
-            <div class="lg:col-span-1 bg-gray-800 p-4 rounded shadow flex flex-col"> <div>
-                    <h2 class="text-lg text-center mb-3 text-cyan-300">Controls & Metrics</h2>
+            <div class="lg:col-span-1 panel-lg flex flex-col"> <div>
+                    <h2 class="text-lg text-center mb-3 heading-color">Controls & Metrics</h2>
 
                     <div class="text-center mb-4">
-                        <h3 class="text-md mb-2 text-yellow-300">RF Generator</h3>
+                        <h3 class="text-md mb-2 subheading-color">RF Generator</h3>
                         <div class="flex justify-center items-center gap-2 mb-1">
                             <button id="rfButton" disabled>RF OFF</button>
                             <button id="toggleObscuringButton" title="Toggle Ultrasound Shadowing Effect">SHADOWING ON</button>
@@ -235,28 +274,26 @@
                         <p class="text-xs mt-1">(Spacebar to toggle RF)</p>
                         <p class="text-xs mt-1">(Arrow Up/Down for slice)</p>
                         <div class="mt-2">
-                            <label for="powerSlider" class="block text-sm mb-1">Power: <span id="powerValue">50</span>W</label>
+                            <label for="powerSlider" class="block text-sm mb-1 label-color">Power: <span id="powerValue">50</span>W</label>
                             <input type="range" id="powerSlider" min="10" max="100" value="50" step="5" class="w-full" disabled>
                         </div>
                     </div>
 
                     <div class="text-sm space-y-1">
-                        <h3 class="text-md mb-2 text-yellow-300">Ablation Status</h3>
-                        <p>Tip Temp: <span id="temperatureValue" class="font-bold text-white">--</span> °C</p>
-                        <p>Slice: <span id="depthValue" class="font-bold text-white">-- / --</span></p>
+                        <h3 class="text-md mb-2 subheading-color">Ablation Status</h3>
+                        <p class="label-color">Tip Temp: <span id="temperatureValue" class="font-bold text-white">--</span> °C</p>
+                        <p class="label-color">Slice: <span id="depthValue" class="font-bold text-white">-- / --</span></p>
                         <hr class="my-2 border-gray-600">
-                        <p>Adequate: <span id="adequatePercent" class="status-adequate font-bold">0</span>%</p>
-                        <p>Incomplete: <span id="incompletePercent" class="status-incomplete font-bold">0</span>%</p>
-                        <p>Excessive: <span id="excessivePercent" class="status-excessive font-bold">0</span>%</p>
-                        <p>Untouched: <span id="untouchedPercent" class="status-untouched font-bold">100</span>%</p>
+                        <p class="label-color">Adequate: <span id="adequatePercent" class="status-adequate font-bold">0</span>%</p>
+                        <p class="label-color">Incomplete: <span id="incompletePercent" class="status-incomplete font-bold">0</span>%</p>
+                        <p class="label-color">Excessive: <span id="excessivePercent" class="status-excessive font-bold">0</span>%</p>
+                        <p class="label-color">Untouched: <span id="untouchedPercent" class="status-untouched font-bold">100</span>%</p>
                         </div>
                 </div>
             </div>
         </div>
 
-         <div id="warningArea" class="text-center mt-2 h-6 text-yellow-400 font-bold"></div>
-
-        <div id="messageBox">
+         <div id="warningArea" class="text-center mt-2 h-6 text-orange-500 font-bold"></div> <div id="messageBox">
             <p id="messageText"></p>
             <button id="closeMessageButton" class="mt-4">OK</button>
         </div>
@@ -292,7 +329,7 @@
         const noduleButtons = noduleSelectionDiv.querySelectorAll('.nodule-button');
         // const infoButton = document.getElementById('infoButton'); // Removed
         const toggleObscuringButton = document.getElementById('toggleObscuringButton');
-        const toggleGridButton = document.getElementById('toggleGridButton'); // Grid toggle button
+        const toggleGridButton = document.getElementById('toggleGridButton');
 
         // --- Game State Variables ---
         let gameActive = false;
@@ -320,7 +357,7 @@
         let currentSlice = 0;
         let maxSlices = 5;
         let obscuringEffectActive = true;
-        let showGridAndOutline = true; // State for grid/outline toggle
+        let showGridAndOutline = true;
         let noiseCanvas = null;
 
         // Ablation constants
@@ -374,8 +411,8 @@
             adequatePercentSpan.textContent = '0'; incompletePercentSpan.textContent = '0'; excessivePercentSpan.textContent = '0'; untouchedPercentSpan.textContent = '100';
             obscuringEffectActive = true;
             toggleObscuringButton.textContent = 'SHADOWING ON';
-            showGridAndOutline = true; // Default grid/outline ON
-            toggleGridButton.textContent = 'GRID ON'; // Set initial button text
+            showGridAndOutline = true;
+            toggleGridButton.textContent = 'GRID ON';
 
             if (!noiseCanvas) { generateNoiseBackground(); }
 
@@ -584,7 +621,7 @@
         });
         rfButton.addEventListener('click', toggleRF);
 
-        // Obscuring Toggle Button Listener (Fixed)
+        // Obscuring Toggle Button Listener
         toggleObscuringButton.addEventListener('click', () => {
             obscuringEffectActive = !obscuringEffectActive;
             toggleObscuringButton.textContent = obscuringEffectActive ? 'SHADOWING ON' : 'SHADOWING OFF';
@@ -595,7 +632,8 @@
         toggleGridButton.addEventListener('click', () => {
             showGridAndOutline = !showGridAndOutline;
             toggleGridButton.textContent = showGridAndOutline ? 'GRID ON' : 'GRID OFF';
-            drawUltrasound(); // Redraw ultrasound to show/hide grid/outline
+            // Redraw ultrasound immediately to reflect the change
+            drawUltrasound();
         });
 
 
@@ -621,23 +659,7 @@
              }
          });
         powerSlider.addEventListener('input', (e) => { if (!gameActive || needleState !== 'inserted') return; power = parseInt(e.target.value); powerValueSpan.textContent = power; });
-        noduleButtons.forEach(button => { button.addEventListener('click', () => {
-             // Allow changing size only when idle or awaiting entry/angle
-             if (needleState === 'inserted') return;
-             selectedNoduleRadius = parseInt(button.getAttribute('data-size'));
-             noduleButtons.forEach(btn => btn.classList.remove('selected'));
-             button.classList.add('selected');
-             createNoduleAndVoxels();
-             startButton.disabled = false;
-             // If already started, stay in that state, otherwise prompt to start
-             if (needleState === 'idle') {
-                 instructionText.textContent = 'Click Start';
-             } else if (needleState === 'awaiting_entry_point') {
-                 instructionText.textContent = 'Click Anatomy View to Select Entry Point';
-             } else if (needleState === 'awaiting_insertion_angle') {
-                  instructionText.textContent = 'Click Ultrasound View to Set Insertion Angle';
-             }
-         }); });
+        noduleButtons.forEach(button => { button.addEventListener('click', () => { if (needleState === 'inserted') return; selectedNoduleRadius = parseInt(button.getAttribute('data-size')); noduleButtons.forEach(btn => btn.classList.remove('selected')); button.classList.add('selected'); createNoduleAndVoxels(); startButton.disabled = false; if (needleState === 'idle') { instructionText.textContent = 'Click Start'; } else if (needleState === 'awaiting_entry_point') { instructionText.textContent = 'Click Anatomy View to Select Entry Point'; } else if (needleState === 'awaiting_insertion_angle') { instructionText.textContent = 'Click Ultrasound View to Set Insertion Angle'; } }); });
         startButton.addEventListener('click', startGame);
         resetButton.addEventListener('click', () => { endGame(true); });
         closeMessageButton.addEventListener('click', hideMessage);
