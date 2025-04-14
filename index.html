@@ -12,7 +12,6 @@
         /* Apply the Roboto font */
         body {
             font-family: 'Roboto', sans-serif;
-            /* Dark charcoal background */
             background-color: #1f2937; /* Tailwind gray-800 */
             color: #e5e7eb; /* Tailwind gray-200 */
             display: flex;
@@ -24,17 +23,16 @@
         }
         /* Style the canvas elements */
         canvas {
-            /* Darker background for canvases */
             background-color: #111827; /* Tailwind gray-900 */
             border: 2px solid #4b5563; /* Tailwind gray-600 */
             border-radius: 8px;
             display: block;
             max-width: 100%;
         }
-        #structureAnatomyCanvas {
+        #structureAnatomyCanvas { /* Canvas for entry point selection */
              cursor: pointer;
         }
-         #sliceAnatomyCanvas {
+         #sliceAnatomyCanvas { /* Canvas for slice view */
              cursor: default;
          }
         #ultrasoundCanvas {
@@ -43,7 +41,7 @@
              border: 2px solid #4b5563; /* Match other canvases */
         }
 
-        /* Style buttons - UF Blue accent */
+        /* Style buttons with arcade feel */
         button, .nodule-button {
             font-family: 'Roboto', sans-serif;
             font-weight: 700;
@@ -94,7 +92,7 @@
          .nodule-button.selected:hover {
              background-color: #ea580c;
          }
-         /* Style for toggle buttons (use accent blue) */
+         /* Style for info/toggle buttons */
          #toggleObscuringButton, #toggleGridButton {
              font-size: 0.8em;
              padding: 5px 10px;
@@ -177,6 +175,7 @@
              padding: 0.5rem; /* p-2 */
              border-radius: 0.5rem; /* rounded */
              box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06); /* shadow */
+             position: relative; /* Needed for absolute positioning of warning area */
         }
          .panel-lg { /* Larger padding for controls panel */
              background-color: #1f2937; /* Tailwind gray-800 */
@@ -249,9 +248,11 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-4">
 
             <div class="lg:col-span-2 space-y-4">
-                <div class="panel">
+                <div class="panel relative">
                     <h2 class="text-lg text-center mb-2 heading-color">Ultrasound View</h2>
                     <canvas id="ultrasoundCanvas" width="600" height="400"></canvas>
+                    <div id="ultrasoundWarningArea" class="absolute bottom-2 left-0 right-0 text-center text-orange-500 font-bold text-sm pointer-events-none h-6">
+                        </div>
                 </div>
                 <div class="panel">
                     <h2 class="text-lg text-center mb-2 heading-color">Simplified Anatomy</h2>
@@ -293,7 +294,7 @@
             </div>
         </div>
 
-         <div id="warningArea" class="text-center mt-2 h-6 text-orange-500 font-bold"></div> <div id="messageBox">
+         <div id="messageBox">
             <p id="messageText"></p>
             <button id="closeMessageButton" class="mt-4">OK</button>
         </div>
@@ -320,7 +321,8 @@
         const untouchedPercentSpan = document.getElementById('untouchedPercent');
         const startButton = document.getElementById('startButton');
         const resetButton = document.getElementById('resetButton');
-        const warningArea = document.getElementById('warningArea');
+        // const warningArea = document.getElementById('warningArea'); // Removed
+        const ultrasoundWarningArea = document.getElementById('ultrasoundWarningArea'); // New warning area
         const instructionText = document.getElementById('instructionText');
         const messageBox = document.getElementById('messageBox');
         const messageText = document.getElementById('messageText');
@@ -367,7 +369,7 @@
         const INCOMPLETE_THRESHOLD = 0.1;
         const BASE_HEAT_SPREAD_RADIUS = voxelSize * 4.0;
         const TIP_CONDITION_RADIUS = voxelSize * 1.5;
-        const THERMAL_DIFFUSIVITY = 0.03;
+        const THERMAL_DIFFUSIVITY = 0.025;
         const PIXELS_PER_CM = 50;
         const ACTIVE_ELECTRODE_LENGTH = PIXELS_PER_CM;
 
@@ -375,8 +377,8 @@
         const BODY_TEMP = 37.0;
         const MAX_TEMP = 100.0;
         const EFFECTIVE_TEMP_THRESHOLD = 60.0;
-        const TEMP_INCREASE_RATE = 0.65;
-        const TEMP_DECREASE_RATE = 0.01;
+        const TEMP_INCREASE_RATE = 0.3;
+        const TEMP_DECREASE_RATE = 0.005;
 
         // Voxel states & Colors
         const STATE_UNTOUCHED = 'untouched';
@@ -395,7 +397,8 @@
             needleState = 'idle'; entryPoint = null; pivotPoint = null; initialInsertionAngle = null;
             needleAngle = Math.PI / 2; needleLength = 100; needlePos = { x: -100, y: -100 };
             voxels = []; totalNoduleVoxels = 0; nodule = null; voxelMap.clear();
-            warningArea.textContent = ''; instructionText.textContent = 'Select Nodule Size Above';
+            ultrasoundWarningArea.textContent = '';
+            instructionText.textContent = 'Select Nodule Size Above';
             if (animationFrameId) cancelAnimationFrame(animationFrameId); animationFrameId = null;
             if (gameLogicInterval) clearInterval(gameLogicInterval); gameLogicInterval = null;
 
@@ -554,7 +557,7 @@
             const distFromNoduleCenter = Math.sqrt(Math.pow(needlePos.x - nodule.x, 2) + Math.pow(needlePos.y - nodule.y, 2));
             const safeRadius = sliceRadius + voxelSize;
             if (distFromNoduleCenter > safeRadius && rfActive) { isOutsideTarget = true; if (!isNearCritical) warningMsg = 'WARNING: Ablating outside target zone!'; }
-            warningArea.textContent = warningMsg;
+            ultrasoundWarningArea.textContent = warningMsg; // Update correct warning area
         }
 
         let gameLogicInterval = null; // Unchanged
@@ -566,7 +569,7 @@
             if (gameActive || needleState !== 'idle' || !selectedNoduleRadius) return; needleState = 'awaiting_entry_point'; instructionText.textContent = 'Click Anatomy View to Select Entry Point'; startButton.disabled = true; resetButton.disabled = false; noduleButtons.forEach(btn => btn.disabled = true); if (!animationFrameId) animationFrameId = requestAnimationFrame(draw);
         }
         function resetForReEntry() { // Unchanged
-             gameActive = false; rfActive = false; needleState = 'awaiting_entry_point'; entryPoint = null; pivotPoint = null; initialInsertionAngle = null; needlePos = { x: -100, y: -100 }; instructionText.textContent = 'Needle Retracted. Select New Entry Point.'; rfButton.disabled = true; rfButton.classList.remove('on'); powerSlider.disabled = true; warningArea.textContent = ''; if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; } updateMetrics(); draw();
+             gameActive = false; rfActive = false; needleState = 'awaiting_entry_point'; entryPoint = null; pivotPoint = null; initialInsertionAngle = null; needlePos = { x: -100, y: -100 }; instructionText.textContent = 'Needle Retracted. Select New Entry Point.'; rfButton.disabled = true; rfButton.classList.remove('on'); powerSlider.disabled = true; ultrasoundWarningArea.textContent = ''; if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; } updateMetrics(); draw();
         }
         function endGame(manualReset = false) { // Unchanged
              gameActive = false; rfActive = false; if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; } if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; } if (!manualReset && totalNoduleVoxels > 0) { let adequateCount = 0, incompleteCount = 0, excessiveCount = 0; voxels.forEach(voxel => { if (voxel.state === STATE_ADEQUATE) adequateCount++; else if (voxel.state === STATE_INCOMPLETE) incompleteCount++; else if (voxel.state === STATE_EXCESSIVE) excessiveCount++; }); const adequateP = Math.round((adequateCount / totalNoduleVoxels) * 100); const incompleteP = Math.round((incompleteCount / totalNoduleVoxels) * 100); const excessiveP = Math.round((excessiveCount / totalNoduleVoxels) * 100);
@@ -579,7 +582,7 @@
             messageBox.style.display = 'block';
         }
         function hideMessage() { messageBox.style.display = 'none'; } // Unchanged
-        function toggleRF() { if (!gameActive || needleState !== 'inserted') return; rfActive = !rfActive; rfButton.textContent = rfActive ? 'RF ON' : 'RF OFF'; rfButton.classList.toggle('on', rfActive); if (!rfActive) warningArea.textContent = ''; } // Unchanged
+        function toggleRF() { if (!gameActive || needleState !== 'inserted') return; rfActive = !rfActive; rfButton.textContent = rfActive ? 'RF ON' : 'RF OFF'; rfButton.classList.toggle('on', rfActive); if (!rfActive) ultrasoundWarningArea.textContent = ''; } // Unchanged
 
         // --- Event Listeners ---
 
@@ -628,7 +631,7 @@
             drawUltrasound(); // Unconditional redraw
         });
 
-        // Grid/Outline Toggle Button Listener (Added)
+        // Grid/Outline Toggle Button Listener (Fixed)
         toggleGridButton.addEventListener('click', () => {
             showGridAndOutline = !showGridAndOutline;
             toggleGridButton.textContent = showGridAndOutline ? 'GRID ON' : 'GRID OFF';
