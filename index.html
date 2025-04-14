@@ -324,14 +324,15 @@
         const INCOMPLETE_THRESHOLD = 0.1;
         const BASE_HEAT_SPREAD_RADIUS = voxelSize * 4.0;
         const TIP_CONDITION_RADIUS = voxelSize * 1.5;
-        const THERMAL_DIFFUSIVITY = 0.03;
+        const THERMAL_DIFFUSIVITY = 0.05; // Updated diffusivity
         const PIXELS_PER_CM = 50;
+        const ACTIVE_ELECTRODE_LENGTH = PIXELS_PER_CM;
 
         // Temp constants
         const BODY_TEMP = 37.0;
         const MAX_TEMP = 100.0;
         const EFFECTIVE_TEMP_THRESHOLD = 60.0;
-        const TEMP_INCREASE_RATE = 0.72;
+        const TEMP_INCREASE_RATE = 0.3; // Updated heating rate
         const TEMP_DECREASE_RATE = 0.01;
 
         // Voxel states & Colors
@@ -424,13 +425,19 @@
             const r = Math.round(lerp(COLOR_UNTOUCHED.r, COLOR_INCOMPLETE.r, t)); const g = Math.round(lerp(COLOR_UNTOUCHED.g, COLOR_INCOMPLETE.g, t)); const b = Math.round(lerp(COLOR_UNTOUCHED.b, COLOR_INCOMPLETE.b, t)); const a = lerp(COLOR_UNTOUCHED.a, COLOR_INCOMPLETE.a, t);
             return `rgba(${r}, ${g}, ${b}, ${a.toFixed(2)})`;
         }
+        function distancePointToLineSegment3D(point, p1, p2) {
+            const v = { x: p2.x - p1.x, y: p2.y - p1.y, z: p2.z - p1.z }; const w = { x: point.x - p1.x, y: point.y - p1.y, z: point.z - p1.z };
+            const c1 = w.x * v.x + w.y * v.y + w.z * v.z; if (c1 <= 0) { return Math.sqrt(w.x * w.x + w.y * w.y + w.z * w.z); }
+            const c2 = v.x * v.x + v.y * v.y + v.z * v.z; if (c2 <= c1) { const w2 = { x: point.x - p2.x, y: point.y - p2.y, z: point.z - p2.z }; return Math.sqrt(w2.x * w2.x + w2.y * w2.y + w2.z * w2.z); }
+            const b = c1 / c2; const pb = { x: p1.x + b * v.x, y: p1.y + b * v.y, z: p1.z + b * v.z }; const distVec = { x: point.x - pb.x, y: point.y - pb.y, z: point.z - pb.z }; return Math.sqrt(distVec.x * distVec.x + distVec.y * distVec.y + distVec.z * distVec.z);
+        }
 
 
         // --- Drawing Functions --- (Unchanged)
         function drawUltrasound() {
             usCtx.clearRect(0, 0, ultrasoundCanvas.width, ultrasoundCanvas.height); usCtx.strokeStyle = '#4a4a7f'; usCtx.lineWidth = 2; const drawWidth = ultrasoundCanvas.width - 35; usCtx.strokeRect(0, 0, drawWidth, ultrasoundCanvas.height);
             if (nodule) { const columns = new Map(); voxels.filter(voxel => voxel.z === currentSlice && voxel.x < drawWidth).forEach(voxel => { if (!columns.has(voxel.x)) { columns.set(voxel.x, []); } columns.get(voxel.x).push(voxel); }); columns.forEach(columnVoxels => { columnVoxels.sort((a, b) => a.y - b.y); let columnObscured = false; columnVoxels.forEach(voxel => { let fillStyle = ''; if (obscuringEffectActive && columnObscured) { fillStyle = `rgba(${COLOR_OBSCURED.r}, ${COLOR_OBSCURED.g}, ${COLOR_OBSCURED.b}, ${COLOR_OBSCURED.a})`; } else { switch (voxel.state) { case STATE_INCOMPLETE: fillStyle = getInterpolatedIncompleteColor(voxel.temperature); break; case STATE_ADEQUATE: fillStyle = `rgba(${COLOR_ADEQUATE.r}, ${COLOR_ADEQUATE.g}, ${COLOR_ADEQUATE.b}, ${COLOR_ADEQUATE.a})`; break; case STATE_EXCESSIVE: fillStyle = `rgba(${COLOR_EXCESSIVE.r}, ${COLOR_EXCESSIVE.g}, ${COLOR_EXCESSIVE.b}, ${COLOR_EXCESSIVE.a})`; break; default: fillStyle = `rgba(${COLOR_UNTOUCHED.r}, ${COLOR_UNTOUCHED.g}, ${COLOR_UNTOUCHED.b}, ${COLOR_UNTOUCHED.a})`; break; } } usCtx.fillStyle = fillStyle; usCtx.fillRect(voxel.x, voxel.y, voxel.size, voxel.size); usCtx.strokeStyle = '#333'; usCtx.strokeRect(voxel.x, voxel.y, voxel.size, voxel.size); if (obscuringEffectActive && !columnObscured && (voxel.state === STATE_ADEQUATE || voxel.state === STATE_EXCESSIVE)) { columnObscured = true; } }); }); const sliceRatio = 1 - Math.abs(currentSlice - Math.floor(maxSlices / 2)) / (maxSlices / 2); const sliceRadius = nodule.radius * Math.sqrt(Math.max(0, sliceRatio)); if (sliceRadius > 0) { usCtx.strokeStyle = '#3498db'; usCtx.lineWidth = 1; usCtx.setLineDash([5, 5]); usCtx.beginPath(); usCtx.arc(nodule.x, nodule.y, sliceRadius, 0, Math.PI * 2); usCtx.stroke(); usCtx.setLineDash([]); } }
-            if (needleState === 'inserted' && pivotPoint) { const drawPivotX = Math.min(pivotPoint.x, drawWidth - 1); usCtx.strokeStyle = '#bdc3c7'; usCtx.lineWidth = 2; usCtx.beginPath(); usCtx.moveTo(drawPivotX, pivotPoint.y); usCtx.lineTo(needlePos.x, needlePos.y); usCtx.stroke(); usCtx.fillStyle = '#f1c40f'; usCtx.beginPath(); usCtx.arc(needlePos.x, needlePos.y, 5, 0, Math.PI * 2); usCtx.fill(); if (rfActive) { const powerScale = (power - 10) / (100 - 10); const currentHeatSpreadRadius = BASE_HEAT_SPREAD_RADIUS * (0.75 + powerScale * 0.5); usCtx.fillStyle = 'rgba(255, 255, 0, 0.15)'; usCtx.beginPath(); usCtx.arc(needlePos.x, needlePos.y, BASE_HEAT_SPREAD_RADIUS, 0, Math.PI * 2); usCtx.fill(); } }
+            if (needleState === 'inserted' && pivotPoint) { const drawPivotX = Math.min(pivotPoint.x, drawWidth - 1); const baseNeedleX = needlePos.x - Math.cos(needleAngle) * ACTIVE_ELECTRODE_LENGTH; const baseNeedleY = needlePos.y - Math.sin(needleAngle) * ACTIVE_ELECTRODE_LENGTH; usCtx.strokeStyle = '#bdc3c7'; usCtx.lineWidth = 2; usCtx.beginPath(); usCtx.moveTo(drawPivotX, pivotPoint.y); usCtx.lineTo(baseNeedleX, baseNeedleY); usCtx.stroke(); if (rfActive) { usCtx.strokeStyle = '#f1c40f'; usCtx.lineWidth = 4; } else { usCtx.strokeStyle = '#bdc3c7'; usCtx.lineWidth = 2; } usCtx.beginPath(); usCtx.moveTo(baseNeedleX, baseNeedleY); usCtx.lineTo(needlePos.x, needlePos.y); usCtx.stroke(); usCtx.lineWidth = 1; }
             else if (needleState === 'awaiting_insertion_angle' && pivotPoint) { const drawPivotX = Math.min(pivotPoint.x, drawWidth - 1); usCtx.strokeStyle = 'rgba(189, 195, 199, 0.5)'; usCtx.lineWidth = 2; usCtx.beginPath(); usCtx.moveTo(drawPivotX, pivotPoint.y); usCtx.lineTo(drawPivotX, pivotPoint.y + 50); usCtx.stroke(); }
             else if (needleState === 'awaiting_entry_point') { usCtx.fillStyle = '#555'; usCtx.font = "16px 'Roboto'"; usCtx.textAlign = 'center'; usCtx.fillText("Select Entry Point on Anatomy View", drawWidth / 2, ultrasoundCanvas.height / 2); }
             const scaleStartX = drawWidth + 5; const scaleStartY = 10; const scaleEndY = ultrasoundCanvas.height - 10; const maxLabelY = scaleStartY + 7 * PIXELS_PER_CM; usCtx.strokeStyle = '#e0e0e0'; usCtx.lineWidth = 1; usCtx.fillStyle = '#e0e0e0'; usCtx.font = "10px 'Roboto'"; usCtx.textAlign = 'right'; usCtx.textBaseline = 'middle'; usCtx.beginPath(); usCtx.moveTo(scaleStartX, scaleStartY); usCtx.lineTo(scaleStartX, scaleEndY); usCtx.stroke(); for (let y = scaleStartY; y <= Math.min(scaleEndY, maxLabelY) ; y += PIXELS_PER_CM) { const cmValue = Math.round((y - scaleStartY) / PIXELS_PER_CM); usCtx.beginPath(); usCtx.moveTo(scaleStartX - 5, y); usCtx.lineTo(scaleStartX + 5, y); usCtx.stroke(); usCtx.fillText(`${cmValue} cm`, scaleStartX - 8, y); } for (let y = maxLabelY + PIXELS_PER_CM; y <= scaleEndY; y += PIXELS_PER_CM) { usCtx.beginPath(); usCtx.moveTo(scaleStartX - 3, y); usCtx.lineTo(scaleStartX + 3, y); usCtx.stroke(); }
@@ -468,28 +475,22 @@
              if (!gameActive || needleState !== 'inserted') return;
              voxels.forEach(v => v.prevTemperature = v.temperature);
              const tempChanges = new Array(voxels.length).fill(0);
-             voxels.forEach((voxel, index) => { let directHeatChange = 0; let coolingChange = 0; let conductionChange = 0; let heatedOnCurrentSlice = false; if (rfActive) { const dx = (voxel.x + voxel.size / 2) - needlePos.x; const dy = (voxel.y + voxel.size / 2) - needlePos.y; const dz = (voxel.z - currentSlice) * voxelSize; const distance3D = Math.sqrt(dx*dx + dy*dy + dz*dz); if (distance3D < BASE_HEAT_SPREAD_RADIUS) { const heatFactor = Math.max(0, 1 - (distance3D / BASE_HEAT_SPREAD_RADIUS)); directHeatChange = heatFactor * (power / 50) * TEMP_INCREASE_RATE; if (voxel.z === currentSlice) { heatedOnCurrentSlice = true; } } } if (!heatedOnCurrentSlice) { coolingChange = -TEMP_DECREASE_RATE; }
+             const p1 = { x: needlePos.x - Math.cos(needleAngle) * ACTIVE_ELECTRODE_LENGTH, y: needlePos.y - Math.sin(needleAngle) * ACTIVE_ELECTRODE_LENGTH, z: currentSlice * voxelSize };
+             const p2 = { x: needlePos.x, y: needlePos.y, z: currentSlice * voxelSize };
+             voxels.forEach((voxel, index) => { let directHeatChange = 0; let coolingChange = 0; let conductionChange = 0; let heatedOnCurrentSlice = false; if (rfActive) { const voxelCenter = { x: voxel.x + voxel.size / 2, y: voxel.y + voxel.size / 2, z: voxel.z * voxelSize }; const distanceToSegment = distancePointToLineSegment3D(voxelCenter, p1, p2); if (distanceToSegment < BASE_HEAT_SPREAD_RADIUS) { const heatFactor = Math.max(0, 1 - (distanceToSegment / BASE_HEAT_SPREAD_RADIUS)); directHeatChange = heatFactor * (power / 50) * TEMP_INCREASE_RATE; if (voxel.z === currentSlice) { heatedOnCurrentSlice = true; } } } if (!heatedOnCurrentSlice) { coolingChange = -TEMP_DECREASE_RATE; }
              const neighbors = getNeighbors(voxel); let sumNeighborTempDiff = 0; neighbors.forEach(neighbor => { sumNeighborTempDiff += (neighbor.prevTemperature - voxel.prevTemperature); }); if (neighbors.length > 0) { conductionChange = THERMAL_DIFFUSIVITY * (sumNeighborTempDiff / neighbors.length); } tempChanges[index] = directHeatChange + coolingChange + conductionChange; });
              voxels.forEach((voxel, index) => { voxel.temperature += tempChanges[index]; voxel.temperature = Math.max(BODY_TEMP, Math.min(MAX_TEMP, voxel.temperature)); });
         }
 
+
         function updateAblationProgress() { // Unchanged
             if (!gameActive || needleState !== 'inserted') return;
-            // Update state for ALL voxels based on their current temperature
-            voxels.forEach(voxel => { // Removed filter - update all voxels
-                if (voxel.temperature >= EFFECTIVE_TEMP_THRESHOLD && ABLATION_RATE_FACTOR > 0) {
-                    const tempEffectiveness = (voxel.temperature - EFFECTIVE_TEMP_THRESHOLD) / (MAX_TEMP - EFFECTIVE_TEMP_THRESHOLD);
-                    voxel.ablationProgress += Math.max(0, tempEffectiveness) * ABLATION_RATE_FACTOR;
-                }
-                if (voxel.state === STATE_EXCESSIVE || voxel.temperature >= MAX_TEMP || (ABLATION_RATE_FACTOR > 0 && voxel.ablationProgress >= EXCESSIVE_THRESHOLD)) {
-                    voxel.state = STATE_EXCESSIVE;
-                } else if (voxel.state === STATE_ADEQUATE || voxel.temperature >= EFFECTIVE_TEMP_THRESHOLD) {
-                    voxel.state = STATE_ADEQUATE;
-                } else if (voxel.temperature > BODY_TEMP) {
-                    voxel.state = STATE_INCOMPLETE;
-                } else {
-                    voxel.state = STATE_UNTOUCHED;
-                }
+            voxels.forEach(voxel => { // Update state for ALL voxels
+                if (voxel.temperature >= EFFECTIVE_TEMP_THRESHOLD && ABLATION_RATE_FACTOR > 0) { const tempEffectiveness = (voxel.temperature - EFFECTIVE_TEMP_THRESHOLD) / (MAX_TEMP - EFFECTIVE_TEMP_THRESHOLD); voxel.ablationProgress += Math.max(0, tempEffectiveness) * ABLATION_RATE_FACTOR; }
+                if (voxel.state === STATE_EXCESSIVE || voxel.temperature >= MAX_TEMP || (ABLATION_RATE_FACTOR > 0 && voxel.ablationProgress >= EXCESSIVE_THRESHOLD)) { voxel.state = STATE_EXCESSIVE; }
+                else if (voxel.state === STATE_ADEQUATE || voxel.temperature >= EFFECTIVE_TEMP_THRESHOLD) { voxel.state = STATE_ADEQUATE; }
+                else if (voxel.temperature > BODY_TEMP) { voxel.state = STATE_INCOMPLETE; }
+                else { voxel.state = STATE_UNTOUCHED; }
             });
             // Complication checks only depend on current slice and needle position
             let isNearCritical = false, isOutsideTarget = false, warningMsg = '';
@@ -502,7 +503,6 @@
             if (distFromNoduleCenter > safeRadius && rfActive) { isOutsideTarget = true; if (!isNearCritical) warningMsg = 'WARNING: Ablating outside target zone!'; }
             warningArea.textContent = warningMsg;
         }
-
 
         let gameLogicInterval = null; // Unchanged
         function gameLoop() { if (!gameActive) { if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; } return; } updateVoxelTemperatures(); updateAblationProgress(); updateMetrics(); }
@@ -528,81 +528,14 @@
         function hideMessage() { messageBox.style.display = 'none'; } // Unchanged
         function toggleRF() { if (!gameActive || needleState !== 'inserted') return; rfActive = !rfActive; rfButton.textContent = rfActive ? 'RF ON' : 'RF OFF'; rfButton.classList.toggle('on', rfActive); if (!rfActive) warningArea.textContent = ''; } // Unchanged
 
-        // --- Event Listeners ---
-
-        // Entry Point Selection on Structure Anatomy Canvas
-        structureAnatomyCanvas.addEventListener('click', (e) => {
-             if (needleState !== 'awaiting_entry_point') return;
-             const rect = structureAnatomyCanvas.getBoundingClientRect();
-             entryPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-             const minX = structureAnatomyCanvas.width * 0.1; const maxX = structureAnatomyCanvas.width * 0.9;
-             const minY = 10; const maxY = structureAnatomyCanvas.height - 10;
-             entryPoint.x = Math.max(minX, Math.min(maxX, entryPoint.x));
-             entryPoint.y = Math.max(minY, Math.min(maxY, entryPoint.y));
-             pivotPoint = { x: (entryPoint.x / structureAnatomyCanvas.width) * ultrasoundCanvas.width, y: 15 };
-             needleState = 'awaiting_insertion_angle';
-             instructionText.textContent = 'Click Ultrasound View to Set Insertion Angle';
-             drawStructureAnatomy(); drawSliceAnatomy(); drawUltrasound();
-        });
-
+        // --- Event Listeners --- (All Unchanged)
+        structureAnatomyCanvas.addEventListener('click', (e) => { if (needleState !== 'awaiting_entry_point') return; const rect = structureAnatomyCanvas.getBoundingClientRect(); entryPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top }; const minX = structureAnatomyCanvas.width * 0.1, maxX = structureAnatomyCanvas.width * 0.9, minY = 10, maxY = structureAnatomyCanvas.height - 10; entryPoint.x = Math.max(minX, Math.min(maxX, entryPoint.x)); entryPoint.y = Math.max(minY, Math.min(maxY, entryPoint.y)); pivotPoint = { x: (entryPoint.x / structureAnatomyCanvas.width) * ultrasoundCanvas.width, y: 15 }; needleState = 'awaiting_insertion_angle'; instructionText.textContent = 'Click Ultrasound View to Set Insertion Angle'; drawStructureAnatomy(); drawSliceAnatomy(); drawUltrasound(); });
         ultrasoundCanvas.addEventListener('click', (e) => { if (needleState !== 'awaiting_insertion_angle' || !pivotPoint) return; const rect = ultrasoundCanvas.getBoundingClientRect(); const clickX = e.clientX - rect.left; const clickY = e.clientY - rect.top; const dx = clickX - pivotPoint.x; const dy = clickY - pivotPoint.y; initialInsertionAngle = Math.atan2(dy, dx); initialInsertionAngle = Math.max(0.1, Math.min(Math.PI - 0.1, initialInsertionAngle)); needleAngle = initialInsertionAngle; needleLength = retractionThreshold + 5; needlePos.x = pivotPoint.x + Math.cos(needleAngle) * needleLength; needlePos.y = pivotPoint.y + Math.sin(needleAngle) * needleLength; needleState = 'inserted'; instructionText.textContent = 'Needle Inserted. Aim and Ablate.'; gameActive = true; rfButton.disabled = false; powerSlider.disabled = false; if (gameLogicInterval) clearInterval(gameLogicInterval); gameLogicInterval = setInterval(gameLoop, 50); if (!animationFrameId) animationFrameId = requestAnimationFrame(draw); });
-        ultrasoundCanvas.addEventListener('mousemove', (e) => { // Unchanged
-            if (!gameActive || needleState !== 'inserted' || !pivotPoint) return;
-            const rect = ultrasoundCanvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top;
-            const dx = mouseX - pivotPoint.x; const dy = mouseY - pivotPoint.y;
-            let desiredAngle = Math.atan2(dy, dx); let desiredLength = Math.sqrt(dx*dx + dy*dy);
-            if (desiredLength < retractionThreshold) { resetForReEntry(); return; }
-            needleLength = desiredLength;
-            if (initialInsertionAngle !== null) {
-                const insertionDepth = Math.max(0, needleLength - retractionThreshold);
-                const depthRatio = Math.min(1, insertionDepth / (MAX_DEPTH_FOR_LIMIT_CHANGE - retractionThreshold));
-                const currentAngleLimit = MAX_ANGLE_LIMIT - depthRatio * (MAX_ANGLE_LIMIT - MIN_ANGLE_LIMIT); // Correct interpolation
-                let angleDiff = desiredAngle - initialInsertionAngle;
-                while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI; while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                angleDiff = Math.max(-currentAngleLimit, Math.min(currentAngleLimit, angleDiff));
-                needleAngle = initialInsertionAngle + angleDiff;
-            } else { needleAngle = desiredAngle; }
-            needleAngle = Math.max(0.1, Math.min(Math.PI - 0.1, needleAngle));
-            needlePos.x = pivotPoint.x + Math.cos(needleAngle) * needleLength; needlePos.y = pivotPoint.y + Math.sin(needleAngle) * needleLength;
-            needlePos.x = Math.max(0, Math.min(ultrasoundCanvas.width, needlePos.x)); needlePos.y = Math.max(0, Math.min(ultrasoundCanvas.height, needlePos.y));
-        });
+        ultrasoundCanvas.addEventListener('mousemove', (e) => { if (!gameActive || needleState !== 'inserted' || !pivotPoint) return; const rect = ultrasoundCanvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top; const dx = mouseX - pivotPoint.x; const dy = mouseY - pivotPoint.y; let desiredAngle = Math.atan2(dy, dx); let desiredLength = Math.sqrt(dx*dx + dy*dy); if (desiredLength < retractionThreshold) { resetForReEntry(); return; } needleLength = desiredLength; if (initialInsertionAngle !== null) { const insertionDepth = Math.max(0, needleLength - retractionThreshold); const depthRatio = Math.min(1, insertionDepth / (MAX_DEPTH_FOR_LIMIT_CHANGE - retractionThreshold)); const currentAngleLimit = MAX_ANGLE_LIMIT - depthRatio * (MAX_ANGLE_LIMIT - MIN_ANGLE_LIMIT); let angleDiff = desiredAngle - initialInsertionAngle; while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI; while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI; angleDiff = Math.max(-currentAngleLimit, Math.min(currentAngleLimit, angleDiff)); needleAngle = initialInsertionAngle + angleDiff; } else { needleAngle = desiredAngle; } needleAngle = Math.max(0.1, Math.min(Math.PI - 0.1, needleAngle)); needlePos.x = pivotPoint.x + Math.cos(needleAngle) * needleLength; needlePos.y = pivotPoint.y + Math.sin(needleAngle) * needleLength; needlePos.x = Math.max(0, Math.min(ultrasoundCanvas.width, needlePos.x)); needlePos.y = Math.max(0, Math.min(ultrasoundCanvas.height, needlePos.y)); });
         rfButton.addEventListener('click', toggleRF);
-
-        // Obscuring Toggle Button Listener (Fixed)
-        toggleObscuringButton.addEventListener('click', () => {
-            obscuringEffectActive = !obscuringEffectActive;
-            toggleObscuringButton.textContent = obscuringEffectActive ? 'SHADOWING ON' : 'SHADOWING OFF';
-            // Redraw ultrasound immediately to reflect the change
-            drawUltrasound(); // Unconditional redraw
-        });
-
+        toggleObscuringButton.addEventListener('click', () => { obscuringEffectActive = !obscuringEffectActive; toggleObscuringButton.textContent = obscuringEffectActive ? 'SHADOWING ON' : 'SHADOWING OFF'; drawUltrasound(); });
         // Info Button Listener Removed
-
-        window.addEventListener('keydown', (e) => { // Updated keydown logic for slice change
-             // Allow slice change only when needle is not fully inserted
-             if (needleState === 'awaiting_entry_point' || needleState === 'awaiting_insertion_angle') {
-                 if (e.code === 'ArrowUp') {
-                     e.preventDefault();
-                     currentSlice = Math.max(0, currentSlice - 1);
-                     updateMetrics();
-                     drawSliceAnatomy(); // Redraw slice view
-                     drawUltrasound(); // Redraw US view to show new slice data
-                 } else if (e.code === 'ArrowDown') {
-                     e.preventDefault();
-                     currentSlice = Math.min(maxSlices - 1, currentSlice + 1);
-                     updateMetrics();
-                     drawSliceAnatomy(); // Redraw slice view
-                     drawUltrasound(); // Redraw US view to show new slice data
-                 }
-             }
-             // Allow RF toggle only when inserted
-             if (gameActive && needleState === 'inserted') {
-                 if (e.code === 'Space') {
-                     e.preventDefault();
-                     toggleRF();
-                 }
-             }
-         });
+        window.addEventListener('keydown', (e) => { if (needleState === 'awaiting_entry_point' || needleState === 'awaiting_insertion_angle') { if (e.code === 'ArrowUp') { e.preventDefault(); currentSlice = Math.max(0, currentSlice - 1); updateMetrics(); drawSliceAnatomy(); drawUltrasound(); } else if (e.code === 'ArrowDown') { e.preventDefault(); currentSlice = Math.min(maxSlices - 1, currentSlice + 1); updateMetrics(); drawSliceAnatomy(); drawUltrasound(); } } if (gameActive && needleState === 'inserted') { if (e.code === 'Space') { e.preventDefault(); toggleRF(); } } });
         powerSlider.addEventListener('input', (e) => { if (!gameActive || needleState !== 'inserted') return; power = parseInt(e.target.value); powerValueSpan.textContent = power; });
         noduleButtons.forEach(button => { button.addEventListener('click', () => { if (needleState !== 'idle') return; selectedNoduleRadius = parseInt(button.getAttribute('data-size')); noduleButtons.forEach(btn => btn.classList.remove('selected')); button.classList.add('selected'); createNoduleAndVoxels(); startButton.disabled = false; instructionText.textContent = 'Click Start'; }); });
         startButton.addEventListener('click', startGame);
