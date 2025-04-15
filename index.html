@@ -29,11 +29,9 @@
             display: block;
             max-width: 100%;
         }
-        #structureAnatomyCanvas { /* Canvas for entry point selection */
+        /* Removed structureAnatomyCanvas styles */
+         #sliceAnatomyCanvas { /* Canvas for slice view AND entry click trigger */
              cursor: pointer;
-        }
-         #sliceAnatomyCanvas { /* Canvas for slice view */
-             cursor: default;
          }
         #ultrasoundCanvas {
              cursor: crosshair;
@@ -105,6 +103,22 @@
           #toggleObscuringButton:hover, #toggleGridButton:hover {
               background-color: #1e40af; /* Darker blue-800 */
           }
+          /* Style for Remove Needle button */
+          #removeNeedleButton {
+             font-size: 0.75rem; /* Slightly smaller */
+             padding: 2px 8px; /* Smaller padding */
+             background-color: #dc2626; /* Tailwind red-600 */
+             box-shadow: 0 3px #b91c1c; /* Tailwind red-700 */
+             margin-top: 1px; /* Space from warning text */
+             pointer-events: auto; /* Make sure it's clickable */
+          }
+           #removeNeedleButton:hover {
+             background-color: #b91c1c; /* Darker red */
+           }
+            #removeNeedleButton:active {
+             box-shadow: 0 1px #b91c1c;
+             transform: translateY(1px);
+            }
 
 
         /* Style the message box */
@@ -251,15 +265,15 @@
                 <div class="panel relative">
                     <h2 class="text-lg text-center mb-2 heading-color">Ultrasound View</h2>
                     <canvas id="ultrasoundCanvas" width="600" height="400"></canvas>
-                    <div id="ultrasoundWarningArea" class="absolute bottom-2 left-0 right-0 text-center text-orange-500 font-bold text-sm pointer-events-none h-6">
-                        </div>
-                </div>
-                <div class="panel">
-                    <h2 class="text-lg text-center mb-2 heading-color">Simplified Anatomy</h2>
-                    <canvas id="structureAnatomyCanvas" width="750" height="100"></canvas>
+                    <div class="absolute bottom-2 left-0 right-0 text-center pointer-events-none h-10 flex flex-col items-center">
+                        <span id="warningTextSpan" class="text-orange-500 font-bold text-sm"></span>
+                        <button id="removeNeedleButton" class="mt-1 px-2 py-1 text-xs bg-red-600 hover:bg-red-700 text-white rounded shadow pointer-events-auto hidden">&nbsp;Remove Needle&nbsp;</button>
+                    </div>
                 </div>
                  <div class="panel">
-                    <h2 class="text-lg text-center mb-2 heading-color">Nodule Slices</h2> <canvas id="sliceAnatomyCanvas" width="750" height="100"></canvas> </div>
+                    <h2 class="text-lg text-center mb-2 heading-color">Top-Down View</h2>
+                    <canvas id="sliceAnatomyCanvas" width="750" height="100"></canvas>
+                 </div>
             </div>
 
             <div class="lg:col-span-1 panel-lg flex flex-col"> <div>
@@ -276,7 +290,7 @@
                         <p class="text-xs mt-1">(Arrow Up/Down for slice)</p>
                         <div class="mt-2">
                             <label for="powerSlider" class="block text-sm mb-1 label-color">Power: <span id="powerValue">50</span>W</label>
-                            <input type="range" id="powerSlider" min="10" max="100" value="50" step="5" class="w-full" disabled>
+                            <input type="range" id="powerSlider" min="10" max="100" value="50" step="5" class="w-full">
                         </div>
                     </div>
 
@@ -304,8 +318,8 @@
         // --- Canvas Setup ---
         const ultrasoundCanvas = document.getElementById('ultrasoundCanvas');
         const usCtx = ultrasoundCanvas.getContext('2d');
-        const structureAnatomyCanvas = document.getElementById('structureAnatomyCanvas');
-        const structureAnCtx = structureAnatomyCanvas.getContext('2d');
+        // const structureAnatomyCanvas = document.getElementById('structureAnatomyCanvas'); // Removed
+        // const structureAnCtx = structureAnatomyCanvas.getContext('2d'); // Removed
         const sliceAnatomyCanvas = document.getElementById('sliceAnatomyCanvas');
         const sliceAnCtx = sliceAnatomyCanvas.getContext('2d');
 
@@ -321,15 +335,15 @@
         const untouchedPercentSpan = document.getElementById('untouchedPercent');
         const startButton = document.getElementById('startButton');
         const resetButton = document.getElementById('resetButton');
-        // const warningArea = document.getElementById('warningArea'); // Removed
-        const ultrasoundWarningArea = document.getElementById('ultrasoundWarningArea'); // New warning area
+        // const ultrasoundWarningArea = document.getElementById('ultrasoundWarningArea'); // Div container
+        const warningTextSpan = document.getElementById('warningTextSpan'); // Span for text
+        const removeNeedleButton = document.getElementById('removeNeedleButton'); // Button for reset
         const instructionText = document.getElementById('instructionText');
         const messageBox = document.getElementById('messageBox');
         const messageText = document.getElementById('messageText');
         const closeMessageButton = document.getElementById('closeMessageButton');
         const noduleSelectionDiv = document.getElementById('noduleSelection');
         const noduleButtons = noduleSelectionDiv.querySelectorAll('.nodule-button');
-        // const infoButton = document.getElementById('infoButton'); // Removed
         const toggleObscuringButton = document.getElementById('toggleObscuringButton');
         const toggleGridButton = document.getElementById('toggleGridButton');
 
@@ -350,7 +364,7 @@
         let needleLength = 100;
         const retractionThreshold = 15;
         let nodule = null;
-        let criticalStructures = [];
+        let nearbyStructures = []; // Holds definitions for Carotid, IJV, Trachea
         let voxels = [];
         let voxelMap = new Map();
         const voxelSize = 10;
@@ -361,6 +375,7 @@
         let obscuringEffectActive = true;
         let showGridAndOutline = true;
         let noiseCanvas = null;
+        let isNeedleOnTargetVertically = false; // Flag for Y-axis entry check
 
         // Ablation constants
         const ABLATION_RATE_FACTOR = 0;
@@ -377,7 +392,7 @@
         const BODY_TEMP = 37.0;
         const MAX_TEMP = 100.0;
         const EFFECTIVE_TEMP_THRESHOLD = 60.0;
-        const TEMP_INCREASE_RATE = 0.3;
+        const TEMP_INCREASE_RATE = 0.35;
         const TEMP_DECREASE_RATE = 0.005;
 
         // Voxel states & Colors
@@ -396,20 +411,27 @@
             gameActive = false; rfActive = false; /* score = 0; */
             needleState = 'idle'; entryPoint = null; pivotPoint = null; initialInsertionAngle = null;
             needleAngle = Math.PI / 2; needleLength = 100; needlePos = { x: -100, y: -100 };
-            voxels = []; totalNoduleVoxels = 0; nodule = null; voxelMap.clear();
-            ultrasoundWarningArea.textContent = '';
+            voxels = []; totalNoduleVoxels = 0; nodule = null; voxelMap.clear(); nearbyStructures = [];
+            warningTextSpan.textContent = ''; // Clear warning text
+            removeNeedleButton.classList.add('hidden'); // Hide button
             instructionText.textContent = 'Select Nodule Size Above';
+            isNeedleOnTargetVertically = false; // Reset flag
             if (animationFrameId) cancelAnimationFrame(animationFrameId); animationFrameId = null;
             if (gameLogicInterval) clearInterval(gameLogicInterval); gameLogicInterval = null;
 
              if (selectedNoduleRadius && !isReset) { createNoduleAndVoxels(); instructionText.textContent = 'Click Start'; startButton.disabled = false; }
              else if (!isReset) { startButton.disabled = true; }
 
-            criticalStructures = [ { x: structureAnatomyCanvas.width * 0.3, y: 20, width: 40, height: 60, name: 'Vessel' }, { x: structureAnatomyCanvas.width * 0.65, y: 20, width: 50, height: 60, name: 'Trachea' }];
+            // criticalStructures removed
             rfButton.textContent = 'RF OFF'; rfButton.classList.remove('on'); rfButton.disabled = true;
-            powerSlider.disabled = true; resetButton.disabled = true; powerSlider.value = power; powerValueSpan.textContent = power;
+            powerSlider.disabled = false;
+            resetButton.disabled = true; powerSlider.value = power; powerValueSpan.textContent = power;
             noduleButtons.forEach(btn => btn.disabled = false);
-            if (!isReset) { noduleButtons.forEach(btn => btn.classList.remove('selected')); selectedNoduleRadius = null; startButton.disabled = true; }
+            if (!isReset || selectedNoduleRadius === null) {
+                 noduleButtons.forEach(btn => btn.classList.remove('selected'));
+                 selectedNoduleRadius = null;
+                 startButton.disabled = true;
+            }
             temperatureValueSpan.textContent = '--'; depthValueSpan.textContent = '-- / --';
             adequatePercentSpan.textContent = '0'; incompletePercentSpan.textContent = '0'; excessivePercentSpan.textContent = '0'; untouchedPercentSpan.textContent = '100';
             obscuringEffectActive = true;
@@ -426,7 +448,7 @@
             noiseCanvas = document.createElement('canvas'); noiseCanvas.width = ultrasoundCanvas.width; noiseCanvas.height = ultrasoundCanvas.height; const noiseCtx = noiseCanvas.getContext('2d'); const gradient = noiseCtx.createLinearGradient(0, 0, 0, noiseCanvas.height); gradient.addColorStop(0, '#252a38'); gradient.addColorStop(1, '#080a10'); noiseCtx.fillStyle = gradient; noiseCtx.fillRect(0, 0, noiseCanvas.width, noiseCanvas.height); const imageData = noiseCtx.getImageData(0, 0, noiseCanvas.width, noiseCanvas.height); const data = imageData.data; const noiseIntensity = 25; for (let i = 0; i < data.length; i += 4) { const baseR = data[i]; const baseG = data[i+1]; const baseB = data[i+2]; const randomNoise = (Math.random() - 0.5) * noiseIntensity; const r = Math.max(0, Math.min(255, baseR + randomNoise)); const g = Math.max(0, Math.min(255, baseG + randomNoise)); const b = Math.max(0, Math.min(255, baseB + randomNoise)); data[i] = r; data[i+1] = g; data[i+2] = b; } noiseCtx.putImageData(imageData, 0, 0);
         }
 
-        function createNoduleAndVoxels() { // Unchanged
+        function createNoduleAndVoxels() { // Updated nearby structure definitions
              if (!selectedNoduleRadius) return;
              const effectiveRadius = selectedNoduleRadius;
              const noduleCenterX = ultrasoundCanvas.width / 2;
@@ -435,6 +457,33 @@
              noduleCenterY = Math.max(effectiveRadius + 10, noduleCenterY);
              noduleCenterY = Math.min(ultrasoundCanvas.height - effectiveRadius - 10, noduleCenterY);
              nodule = { x: noduleCenterX, y: noduleCenterY, radius: effectiveRadius };
+
+             // Define nearby structures relative to nodule center (in logical ultrasound coordinates)
+             // Updated size (x2), position (2cm higher, 1.5cm further away + 0.5cm separation)
+             const structureYOffset = -100; // 2cm higher
+             const structureXOffset = 75; // 1.5cm further horizontally (base offset)
+             const additionalSeparation = 25; // 0.5cm more separation for IJV
+
+             nearbyStructures = [
+                 { name: "Carotid Artery", type: 'circle',
+                   cx: nodule.x + nodule.radius + structureXOffset, // R + 1.5cm
+                   cy: nodule.y + 0 + structureYOffset, // 2cm higher
+                   radius: 20, // Doubled size
+                   color: 'rgba(180, 0, 0, 0.7)' }, // Color for slice view
+                 { name: "Jugular Vein", type: 'circle',
+                   cx: nodule.x + nodule.radius + structureXOffset + 30 + additionalSeparation, // R + 1.5cm + 30px + 0.5cm sep
+                   cy: nodule.y + 15 + structureYOffset, // 2cm higher
+                   radius: 24, // Doubled size
+                   color: 'rgba(0, 0, 180, 0.7)' }, // Color for slice view
+                 { name: "Trachea", type: 'rect',
+                   cx: nodule.x - nodule.radius - structureXOffset - 25, // NoduleX - R - 1.5cm - 25px
+                   cy: nodule.y + 0 + structureYOffset + 50, // 2cm higher, +50 to keep center Y roughly same
+                   width: 80, // Doubled size
+                   height: 100, // Doubled size
+                   color: 'rgba(100, 100, 100, 0.6)' } // Color for slice view
+             ];
+
+
              maxSlices = Math.max(3, Math.ceil(effectiveRadius / (voxelSize * 2)));
              currentSlice = Math.floor(maxSlices / 2);
              voxels = []; totalNoduleVoxels = 0; voxelMap.clear();
@@ -488,36 +537,157 @@
         }
 
 
-        // --- Drawing Functions --- (Unchanged)
-        function drawUltrasound() {
+        // --- Drawing Functions ---
+        function drawUltrasound() { // Updated structure colors and preview needle logic
             usCtx.clearRect(0, 0, ultrasoundCanvas.width, ultrasoundCanvas.height); if (noiseCanvas) { usCtx.drawImage(noiseCanvas, 0, 0); } else { usCtx.fillStyle = '#050810'; usCtx.fillRect(0, 0, ultrasoundCanvas.width, ultrasoundCanvas.height); }
             const drawWidth = ultrasoundCanvas.width - 35; usCtx.strokeStyle = '#687088'; usCtx.lineWidth = 2; usCtx.strokeRect(0, 0, drawWidth, ultrasoundCanvas.height);
+
+            // Draw Nearby Structures (behind nodule/voxels)
+            if (nodule) {
+                nearbyStructures.forEach(struct => {
+                    // Use dark gray for vessels in US view, keep defined color for trachea
+                    usCtx.fillStyle = (struct.name.includes("Artery") || struct.name.includes("Vein"))
+                                        ? 'rgba(60, 60, 70, 0.6)' // Dark gray for vessels
+                                        : struct.color; // Original color for trachea
+                    if (struct.type === 'circle') {
+                        usCtx.beginPath(); usCtx.arc(struct.cx, struct.cy, struct.radius, 0, Math.PI * 2); usCtx.fill();
+                    } else if (struct.type === 'rect') {
+                        // Draw Trachea as custom shape extending left/bottom with semicircle top
+                        if (struct.name === 'Trachea') {
+                            const leftEdge = 0;
+                            const bottomEdge = ultrasoundCanvas.height;
+                            const rightEdge = Math.min(drawWidth, struct.cx + struct.width / 2);
+                            const topEdgeY = Math.max(0, struct.cy - struct.height / 2);
+                            const semicircleCenterX = (leftEdge + rightEdge) / 2;
+                            const semicircleCenterY = topEdgeY;
+                            const semicircleRadius = (rightEdge - leftEdge) / 2;
+
+                            usCtx.beginPath();
+                            usCtx.moveTo(leftEdge, bottomEdge);
+                            usCtx.lineTo(leftEdge, semicircleCenterY);
+                            if (semicircleRadius > 0) { // Avoid drawing arc with zero radius
+                                usCtx.arc(semicircleCenterX, semicircleCenterY, semicircleRadius, Math.PI, 0, false);
+                            } else { // If radius is zero or less, just draw a line across
+                                usCtx.lineTo(rightEdge, semicircleCenterY);
+                            }
+                            usCtx.lineTo(rightEdge, bottomEdge);
+                            usCtx.closePath();
+                            usCtx.fill();
+                        } else { // Fallback for any other potential future rects
+                             usCtx.fillRect(struct.cx - struct.width / 2, struct.cy - struct.height / 2, struct.width, struct.height);
+                        }
+                    }
+                });
+            }
+
+            // Draw Nodule Voxels & Outline
             if (nodule) { const columns = new Map(); voxels.filter(voxel => voxel.z === currentSlice && voxel.x < drawWidth).forEach(voxel => { if (!columns.has(voxel.x)) { columns.set(voxel.x, []); } columns.get(voxel.x).push(voxel); }); columns.forEach(columnVoxels => { columnVoxels.sort((a, b) => a.y - b.y); let columnObscured = false; columnVoxels.forEach(voxel => { let fillStyle = ''; if (obscuringEffectActive && columnObscured) { fillStyle = `rgba(${COLOR_OBSCURED.r}, ${COLOR_OBSCURED.g}, ${COLOR_OBSCURED.b}, ${COLOR_OBSCURED.a})`; } else { switch (voxel.state) { case STATE_INCOMPLETE: fillStyle = getInterpolatedIncompleteColor(voxel.temperature); break; case STATE_ADEQUATE: fillStyle = `rgba(${COLOR_ADEQUATE.r}, ${COLOR_ADEQUATE.g}, ${COLOR_ADEQUATE.b}, ${COLOR_ADEQUATE.a})`; break; case STATE_EXCESSIVE: fillStyle = `rgba(${COLOR_EXCESSIVE.r}, ${COLOR_EXCESSIVE.g}, ${COLOR_EXCESSIVE.b}, ${COLOR_EXCESSIVE.a})`; break; default: fillStyle = `rgba(${COLOR_UNTOUCHED.r}, ${COLOR_UNTOUCHED.g}, ${COLOR_UNTOUCHED.b}, ${COLOR_UNTOUCHED.a})`; break; } } usCtx.fillStyle = fillStyle; usCtx.fillRect(voxel.x, voxel.y, voxel.size, voxel.size); if (showGridAndOutline) { usCtx.strokeStyle = '#333'; usCtx.lineWidth = 1; usCtx.strokeRect(voxel.x, voxel.y, voxel.size, voxel.size); } if (obscuringEffectActive && !columnObscured && (voxel.state === STATE_ADEQUATE || voxel.state === STATE_EXCESSIVE)) { columnObscured = true; } }); }); if (showGridAndOutline) {const sliceRatio = 1 - Math.abs(currentSlice - Math.floor(maxSlices / 2)) / (maxSlices / 2); const sliceRadius = nodule.radius * Math.sqrt(Math.max(0, sliceRatio)); if (sliceRadius > 0) { usCtx.strokeStyle = '#3498db'; usCtx.lineWidth = 1; usCtx.setLineDash([5, 5]); usCtx.beginPath(); usCtx.arc(nodule.x, nodule.y, sliceRadius, 0, Math.PI * 2); usCtx.stroke(); usCtx.setLineDash([]); } } }
-            if (needleState === 'inserted' && pivotPoint) { const drawPivotX = Math.min(pivotPoint.x, drawWidth - 1); const baseNeedleX = needlePos.x - Math.cos(needleAngle) * ACTIVE_ELECTRODE_LENGTH; const baseNeedleY = needlePos.y - Math.sin(needleAngle) * ACTIVE_ELECTRODE_LENGTH; usCtx.strokeStyle = '#bdc3c7'; usCtx.lineWidth = 2; usCtx.beginPath(); usCtx.moveTo(drawPivotX, pivotPoint.y); usCtx.lineTo(baseNeedleX, baseNeedleY); usCtx.stroke(); if (rfActive) { usCtx.strokeStyle = '#f1c40f'; usCtx.lineWidth = 4; } else { usCtx.strokeStyle = '#bdc3c7'; usCtx.lineWidth = 2; } usCtx.beginPath(); usCtx.moveTo(baseNeedleX, baseNeedleY); usCtx.lineTo(needlePos.x, needlePos.y); usCtx.stroke(); usCtx.lineWidth = 1; }
-            else if (needleState === 'awaiting_insertion_angle' && pivotPoint) { const drawPivotX = Math.min(pivotPoint.x, drawWidth - 1); usCtx.strokeStyle = 'rgba(189, 195, 199, 0.5)'; usCtx.lineWidth = 2; usCtx.beginPath(); usCtx.moveTo(drawPivotX, pivotPoint.y); usCtx.lineTo(drawPivotX, pivotPoint.y + 50); usCtx.stroke(); }
-            else if (needleState === 'awaiting_entry_point') { usCtx.fillStyle = '#555'; usCtx.font = "16px 'Roboto'"; usCtx.textAlign = 'center'; usCtx.fillText("Select Entry Point on Anatomy View", drawWidth / 2, ultrasoundCanvas.height / 2); }
-            const scaleStartX = drawWidth + 5; const scaleStartY = 10; const scaleEndY = ultrasoundCanvas.height - 10; const maxLabelY = scaleStartY + 7 * PIXELS_PER_CM; usCtx.strokeStyle = '#e0e0e0'; usCtx.lineWidth = 1; usCtx.fillStyle = '#e0e0e0'; usCtx.font = "10px 'Roboto'"; usCtx.textAlign = 'right'; usCtx.textBaseline = 'middle'; usCtx.beginPath(); usCtx.moveTo(scaleStartX, scaleStartY); usCtx.lineTo(scaleStartX, scaleEndY); usCtx.stroke(); for (let y = scaleStartY; y <= Math.min(scaleEndY, maxLabelY) ; y += PIXELS_PER_CM) { const cmValue = Math.round((y - scaleStartY) / PIXELS_PER_CM); usCtx.beginPath(); usCtx.moveTo(scaleStartX - 5, y); usCtx.lineTo(scaleStartX + 5, y); usCtx.stroke(); usCtx.fillText(`${cmValue} cm`, scaleStartX - 8, y); } for (let y = maxLabelY + PIXELS_PER_CM; y <= scaleEndY; y += PIXELS_PER_CM) { usCtx.beginPath(); usCtx.moveTo(scaleStartX - 3, y); usCtx.lineTo(scaleStartX + 3, y); usCtx.stroke(); }
+
+            // Draw Needle only if vertically on target
+            if (needleState === 'inserted' && pivotPoint && isNeedleOnTargetVertically) {
+                const drawPivotX = Math.min(pivotPoint.x, drawWidth - 1); const baseNeedleX = needlePos.x - Math.cos(needleAngle) * ACTIVE_ELECTRODE_LENGTH; const baseNeedleY = needlePos.y - Math.sin(needleAngle) * ACTIVE_ELECTRODE_LENGTH; usCtx.strokeStyle = '#bdc3c7'; usCtx.lineWidth = 2; usCtx.beginPath(); usCtx.moveTo(drawPivotX, pivotPoint.y); usCtx.lineTo(baseNeedleX, baseNeedleY); usCtx.stroke(); if (rfActive) { usCtx.strokeStyle = '#f1c40f'; usCtx.lineWidth = 4; } else { usCtx.strokeStyle = '#bdc3c7'; usCtx.lineWidth = 2; } usCtx.beginPath(); usCtx.moveTo(baseNeedleX, baseNeedleY); usCtx.lineTo(needlePos.x, needlePos.y); usCtx.stroke(); usCtx.lineWidth = 1;
+            }
+            // Draw preview needle only if vertically on target
+            else if (needleState === 'awaiting_insertion_angle' && pivotPoint && isNeedleOnTargetVertically) { // Keep vertical check
+                 const drawPivotX = Math.min(pivotPoint.x, drawWidth - 1); usCtx.strokeStyle = 'rgba(189, 195, 199, 0.5)'; usCtx.lineWidth = 2; usCtx.beginPath(); usCtx.moveTo(drawPivotX, pivotPoint.y); usCtx.lineTo(drawPivotX, pivotPoint.y + 50); usCtx.stroke();
+            }
+            else if (needleState === 'awaiting_entry_point') { usCtx.fillStyle = '#555'; usCtx.font = "16px 'Roboto'"; usCtx.textAlign = 'center'; usCtx.fillText("Click Nodule Slice View", drawWidth / 2, ultrasoundCanvas.height / 2); }
+
+            // Draw Scale
+            const scaleStartX = drawWidth + 5; const scaleStartY = 0; const scaleEndY = ultrasoundCanvas.height - 10; const maxLabelY = scaleStartY + 7 * PIXELS_PER_CM; usCtx.strokeStyle = '#e0e0e0'; usCtx.lineWidth = 1; usCtx.fillStyle = '#e0e0e0'; usCtx.font = "10px 'Roboto'"; usCtx.textAlign = 'right'; usCtx.textBaseline = 'top'; usCtx.beginPath(); usCtx.moveTo(scaleStartX, scaleStartY); usCtx.lineTo(scaleStartX, scaleEndY); usCtx.stroke(); for (let y = scaleStartY; y <= Math.min(scaleEndY, maxLabelY) ; y += PIXELS_PER_CM) { const cmValue = Math.round(y / PIXELS_PER_CM); usCtx.beginPath(); usCtx.moveTo(scaleStartX - 5, y); usCtx.lineTo(scaleStartX + 5, y); usCtx.stroke(); usCtx.fillText(`${cmValue} cm`, scaleStartX - 8, y); } for (let y = maxLabelY + PIXELS_PER_CM; y <= scaleEndY; y += PIXELS_PER_CM) { usCtx.beginPath(); usCtx.moveTo(scaleStartX - 3, y); usCtx.lineTo(scaleStartX + 3, y); usCtx.stroke(); }
         }
-        function drawSliceAnatomy() { // Unchanged
+
+        function drawSliceAnatomy() { // Updated labels and structure drawing
             sliceAnCtx.clearRect(0, 0, sliceAnatomyCanvas.width, sliceAnatomyCanvas.height);
-            sliceAnCtx.strokeStyle = '#4a4a7f'; sliceAnCtx.lineWidth = 2;
+            sliceAnCtx.strokeStyle = '#4b5563'; // Match border color
+            sliceAnCtx.lineWidth = 2;
             sliceAnCtx.strokeRect(0, 0, sliceAnatomyCanvas.width, sliceAnatomyCanvas.height);
-            if (nodule) { const viewCenterX = sliceAnatomyCanvas.width / 2; const viewCenterY = sliceAnatomyCanvas.height / 2; const maxDrawRadius = sliceAnatomyCanvas.height / 2 - 10; const radiusScaleFactor = maxDrawRadius / selectedNoduleRadius; for (let z = 0; z < maxSlices; z++) { const sliceRatio = 1 - Math.abs(z - Math.floor(maxSlices / 2)) / (maxSlices / 2); const sliceRadius = nodule.radius * Math.sqrt(Math.max(0, sliceRatio)); const drawRadius = sliceRadius * radiusScaleFactor; if (z === currentSlice) { sliceAnCtx.strokeStyle = '#f1c40f'; sliceAnCtx.lineWidth = 3; } else { sliceAnCtx.strokeStyle = '#7f8c8d'; sliceAnCtx.lineWidth = 1; } sliceAnCtx.beginPath(); sliceAnCtx.arc(viewCenterX, viewCenterY, drawRadius, 0, Math.PI * 2); sliceAnCtx.stroke(); } }
-            else { sliceAnCtx.fillStyle = '#555'; sliceAnCtx.font = "12px 'Roboto'"; sliceAnCtx.textAlign = 'center'; sliceAnCtx.fillText("Select Nodule Size", sliceAnatomyCanvas.width / 2, sliceAnatomyCanvas.height / 2); }
-            if (entryPoint) { sliceAnCtx.fillStyle = '#16a085'; sliceAnCtx.beginPath(); const markerX = (entryPoint.x / structureAnatomyCanvas.width) * sliceAnatomyCanvas.width; sliceAnCtx.arc(markerX, 10, 5, 0, Math.PI * 2); sliceAnCtx.fill(); sliceAnCtx.strokeStyle = '#fff'; sliceAnCtx.lineWidth = 1; sliceAnCtx.stroke(); }
+            sliceAnCtx.fillStyle = '#FFFFFF'; // White for labels
+            sliceAnCtx.font = "10px 'Roboto'";
+
+            if (nodule) {
+                const viewCenterX = sliceAnatomyCanvas.width / 2;
+                const viewCenterY = sliceAnatomyCanvas.height / 2;
+                const maxDrawRadius = sliceAnatomyCanvas.height / 2 - 10; // Padding for labels
+                const maxPossibleNoduleRadius = 125;
+                const radiusScaleFactor = maxDrawRadius / maxPossibleNoduleRadius;
+                const mainDrawRadius = selectedNoduleRadius * radiusScaleFactor; // Scale current nodule size
+
+                // Draw Nearby Structures as abstract rectangles
+                 const structureHeight = sliceAnatomyCanvas.height * 0.8; // Taller
+                 nearbyStructures.forEach((struct) => {
+                     sliceAnCtx.fillStyle = struct.color; // Use color defined in structure data
+                     // Map logical X coord to slice view X coord
+                     const drawX = (struct.cx / ultrasoundCanvas.width) * sliceAnatomyCanvas.width;
+                     let structureWidth = (struct.type === 'circle' ? struct.radius * 2 : struct.width) * 0.6; // Scaled width
+
+                     // Draw rect centered horizontally at drawX
+                     sliceAnCtx.fillRect(drawX - structureWidth / 2, viewCenterY - structureHeight / 2, structureWidth, structureHeight);
+
+                     // Add labels above structures
+                     sliceAnCtx.fillStyle = '#FFFFFF'; // White text
+                     sliceAnCtx.textAlign = 'center';
+                     sliceAnCtx.textBaseline = 'bottom'; // Position label above
+                     let labelText = struct.name;
+                     if(struct.name === "Carotid Artery") labelText = "Carotid";
+                     if(struct.name === "Jugular Vein") labelText = "IJV";
+                     sliceAnCtx.fillText(labelText, drawX, viewCenterY - structureHeight / 2 - 3);
+                 });
+
+                // Draw the main nodule circle outline (on top of structures)
+                sliceAnCtx.strokeStyle = '#7f8c8d';
+                sliceAnCtx.lineWidth = 1;
+                sliceAnCtx.beginPath();
+                sliceAnCtx.arc(viewCenterX, viewCenterY, mainDrawRadius, 0, Math.PI * 2);
+                sliceAnCtx.stroke();
+                // Label Nodule
+                sliceAnCtx.fillStyle = '#FFFFFF'; // White text
+                sliceAnCtx.textAlign = 'center';
+                sliceAnCtx.textBaseline = 'middle';
+                sliceAnCtx.fillText("Nodule", viewCenterX, viewCenterY);
+
+
+                // Draw the red line representing the current slice's depth
+                const redLineWidth = sliceAnatomyCanvas.width * 0.9; // Fixed width
+                let lineY = viewCenterY; // Default for 1 slice case
+                if (maxSlices > 1) {
+                    const relativeDepth = (currentSlice - (maxSlices - 1) / 2) / (maxSlices / 2);
+                    lineY = viewCenterY + relativeDepth * mainDrawRadius;
+                }
+                sliceAnCtx.strokeStyle = '#e74c3c'; // Red line
+                sliceAnCtx.lineWidth = 2;
+                sliceAnCtx.beginPath();
+                sliceAnCtx.moveTo(viewCenterX - redLineWidth / 2, lineY);
+                sliceAnCtx.lineTo(viewCenterX + redLineWidth / 2, lineY);
+                sliceAnCtx.stroke();
+                // Label Insonation Plane
+                sliceAnCtx.fillStyle = '#FFFFFF'; // White text
+                sliceAnCtx.textAlign = 'left';
+                sliceAnCtx.textBaseline = 'top'; // Position label below line
+                sliceAnCtx.fillText("Insonation Plane", viewCenterX - redLineWidth / 2, lineY + 3);
+
+
+            } else {
+                 sliceAnCtx.fillStyle = '#555'; sliceAnCtx.font = "12px 'Roboto'"; sliceAnCtx.textAlign = 'center';
+                 sliceAnCtx.fillText("Select Nodule Size", sliceAnatomyCanvas.width / 2, sliceAnatomyCanvas.height / 2);
+            }
         }
-        function drawStructureAnatomy() { // Unchanged
-            structureAnCtx.clearRect(0, 0, structureAnatomyCanvas.width, structureAnatomyCanvas.height);
-            structureAnCtx.strokeStyle = '#4a4a7f'; structureAnCtx.lineWidth = 2;
-            structureAnCtx.strokeRect(0, 0, structureAnatomyCanvas.width, structureAnatomyCanvas.height);
-            structureAnCtx.strokeStyle = '#7f8c8d'; structureAnCtx.lineWidth = 1;
-            structureAnCtx.strokeRect(structureAnatomyCanvas.width * 0.1, 10, structureAnatomyCanvas.width * 0.8, structureAnatomyCanvas.height - 20);
-            criticalStructures.forEach(struct => { structureAnCtx.fillStyle = '#c0392b'; structureAnCtx.fillRect(struct.x, struct.y, struct.width, struct.height); structureAnCtx.fillStyle = '#fff'; structureAnCtx.font = "bold 12px 'Roboto'"; structureAnCtx.textAlign = 'center'; structureAnCtx.fillText(struct.name, struct.x + struct.width / 2, struct.y + struct.height / 2 + 5); });
-            if (needleState === 'inserted' && pivotPoint) { const structureNeedleX = (needlePos.x / ultrasoundCanvas.width) * (structureAnatomyCanvas.width * 0.8) + (structureAnatomyCanvas.width * 0.1); structureAnCtx.fillStyle = '#f1c40f'; structureAnCtx.fillRect(structureNeedleX - 2, 0, 4, structureAnatomyCanvas.height); }
-            if (entryPoint) { structureAnCtx.fillStyle = '#16a085'; structureAnCtx.beginPath(); structureAnCtx.arc(entryPoint.x, entryPoint.y, 5, 0, Math.PI * 2); structureAnCtx.fill(); structureAnCtx.strokeStyle = '#fff'; structureAnCtx.lineWidth = 1; structureAnCtx.stroke(); }
-        }
-        function draw() { // Unchanged
-             if (gameActive || needleState === 'awaiting_entry_point' || needleState === 'awaiting_insertion_angle') { drawUltrasound(); drawStructureAnatomy(); drawSliceAnatomy(); animationFrameId = requestAnimationFrame(draw); } else { drawUltrasound(); drawStructureAnatomy(); drawSliceAnatomy(); if (animationFrameId) cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+
+        // function drawStructureAnatomy() removed
+
+        function draw() { // Updated to remove structure anatomy draw call
+             if (gameActive || needleState === 'awaiting_entry_point' || needleState === 'awaiting_insertion_angle') {
+                 drawUltrasound();
+                 // drawStructureAnatomy(); // Removed
+                 drawSliceAnatomy();
+                 animationFrameId = requestAnimationFrame(draw);
+             } else {
+                 drawUltrasound();
+                 // drawStructureAnatomy(); // Removed
+                 drawSliceAnatomy();
+                 if (animationFrameId) cancelAnimationFrame(animationFrameId);
+                 animationFrameId = null;
+             }
         }
 
         // --- Game Logic ---
@@ -548,17 +718,15 @@
                 else if (voxel.temperature > BODY_TEMP) { voxel.state = STATE_INCOMPLETE; }
                 else { voxel.state = STATE_UNTOUCHED; }
             });
-            // Complication checks only depend on current slice and needle position
-            let isNearCritical = false, isOutsideTarget = false, warningMsg = '';
-            const anatomyNeedleX = (needlePos.x / ultrasoundCanvas.width) * (structureAnatomyCanvas.width * 0.8) + (structureAnatomyCanvas.width * 0.1);
-            criticalStructures.forEach(struct => { if (anatomyNeedleX >= struct.x && anatomyNeedleX <= struct.x + struct.width) { isNearCritical = true; warningMsg = `WARNING: Needle near ${struct.name}!`; }});
-            const sliceRatio = 1 - Math.abs(currentSlice - Math.floor(maxSlices / 2)) / (maxSlices / 2);
-            const sliceRadius = nodule.radius * Math.sqrt(Math.max(0, sliceRatio));
-            const distFromNoduleCenter = Math.sqrt(Math.pow(needlePos.x - nodule.x, 2) + Math.pow(needlePos.y - nodule.y, 2));
-            const safeRadius = sliceRadius + voxelSize;
-            if (distFromNoduleCenter > safeRadius && rfActive) { isOutsideTarget = true; if (!isNearCritical) warningMsg = 'WARNING: Ablating outside target zone!'; }
-            ultrasoundWarningArea.textContent = warningMsg; // Update correct warning area
+            // Complication checks
+            let isNearCritical = false;
+            let isOutsideTarget = false;
+            let warningMsg = '';
+            if (nodule) { nearbyStructures.forEach(struct => { let distance = Infinity; const needleTipRadius = 2; if (struct.type === 'circle') { const dx = needlePos.x - struct.cx; const dy = needlePos.y - struct.cy; if (Math.sqrt(dx*dx + dy*dy) < (struct.radius + needleTipRadius)) { distance = 0; } } else if (struct.type === 'rect') { const rectX = struct.cx - struct.width / 2; const rectY = struct.cy - struct.height / 2; if (needlePos.x + needleTipRadius > rectX && needlePos.x - needleTipRadius < rectX + struct.width && needlePos.y + needleTipRadius > rectY && needlePos.y - needleTipRadius < rectY + struct.height) { distance = 0; } } if (distance === 0) { isNearCritical = true; warningMsg = `WARNING: Needle near ${struct.name}!`; } }); const sliceRatio = 1 - Math.abs(currentSlice - Math.floor(maxSlices / 2)) / (maxSlices / 2); const sliceRadius = nodule.radius * Math.sqrt(Math.max(0, sliceRatio)); const distFromNoduleCenter = Math.sqrt(Math.pow(needlePos.x - nodule.x, 2) + Math.pow(needlePos.y - nodule.y, 2)); const safeRadius = sliceRadius + voxelSize; if (distFromNoduleCenter > safeRadius && rfActive) { isOutsideTarget = true; if (!isNearCritical) { warningMsg = 'WARNING: Ablating outside target zone!'; } } }
+            warningTextSpan.textContent = warningMsg;
+            if (!warningMsg) { removeNeedleButton.classList.add('hidden'); }
         }
+
 
         let gameLogicInterval = null; // Unchanged
         function gameLoop() { if (!gameActive) { if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; } return; } updateVoxelTemperatures(); updateAblationProgress(); updateMetrics(); }
@@ -566,10 +734,15 @@
         // Chart Functions Removed
 
         function startGame() { // Unchanged
-            if (gameActive || needleState !== 'idle' || !selectedNoduleRadius) return; needleState = 'awaiting_entry_point'; instructionText.textContent = 'Click Anatomy View to Select Entry Point'; startButton.disabled = true; resetButton.disabled = false; noduleButtons.forEach(btn => btn.disabled = true); if (!animationFrameId) animationFrameId = requestAnimationFrame(draw);
+            if (gameActive || needleState !== 'idle' || !selectedNoduleRadius) return; needleState = 'awaiting_entry_point'; instructionText.textContent = 'Click Nodule Slice View to Select Entry Point'; startButton.disabled = true; resetButton.disabled = false; noduleButtons.forEach(btn => btn.disabled = true); if (!animationFrameId) animationFrameId = requestAnimationFrame(draw);
         }
-        function resetForReEntry() { // Unchanged
-             gameActive = false; rfActive = false; needleState = 'awaiting_entry_point'; entryPoint = null; pivotPoint = null; initialInsertionAngle = null; needlePos = { x: -100, y: -100 }; instructionText.textContent = 'Needle Retracted. Select New Entry Point.'; rfButton.disabled = true; rfButton.classList.remove('on'); powerSlider.disabled = true; ultrasoundWarningArea.textContent = ''; if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; } updateMetrics(); draw();
+        function resetForReEntry() { // Updated to handle new warning area
+             gameActive = false; rfActive = false; needleState = 'awaiting_entry_point'; entryPoint = null; pivotPoint = null; initialInsertionAngle = null; needlePos = { x: -100, y: -100 }; instructionText.textContent = 'Needle Retracted. Select New Entry Point.'; rfButton.disabled = true; rfButton.classList.remove('on'); powerSlider.disabled = true;
+             warningTextSpan.textContent = ''; // Clear warning text
+             removeNeedleButton.classList.add('hidden'); // Hide button
+             if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; }
+             isNeedleOnTargetVertically = false; // Reset vertical check flag
+             updateMetrics(); draw();
         }
         function endGame(manualReset = false) { // Unchanged
              gameActive = false; rfActive = false; if (gameLogicInterval) { clearInterval(gameLogicInterval); gameLogicInterval = null; } if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; } if (!manualReset && totalNoduleVoxels > 0) { let adequateCount = 0, incompleteCount = 0, excessiveCount = 0; voxels.forEach(voxel => { if (voxel.state === STATE_ADEQUATE) adequateCount++; else if (voxel.state === STATE_INCOMPLETE) incompleteCount++; else if (voxel.state === STATE_EXCESSIVE) excessiveCount++; }); const adequateP = Math.round((adequateCount / totalNoduleVoxels) * 100); const incompleteP = Math.round((incompleteCount / totalNoduleVoxels) * 100); const excessiveP = Math.round((excessiveCount / totalNoduleVoxels) * 100);
@@ -582,24 +755,49 @@
             messageBox.style.display = 'block';
         }
         function hideMessage() { messageBox.style.display = 'none'; } // Unchanged
-        function toggleRF() { if (!gameActive || needleState !== 'inserted') return; rfActive = !rfActive; rfButton.textContent = rfActive ? 'RF ON' : 'RF OFF'; rfButton.classList.toggle('on', rfActive); if (!rfActive) ultrasoundWarningArea.textContent = ''; } // Unchanged
+        function toggleRF() { if (!gameActive || needleState !== 'inserted') return; rfActive = !rfActive; rfButton.textContent = rfActive ? 'RF ON' : 'RF OFF'; rfButton.classList.toggle('on', rfActive); if (!rfActive) { warningTextSpan.textContent = ''; removeNeedleButton.classList.add('hidden'); } } // Unchanged
 
         // --- Event Listeners ---
 
-        // Entry Point Selection on Structure Anatomy Canvas
-        structureAnatomyCanvas.addEventListener('click', (e) => {
-             if (needleState !== 'awaiting_entry_point') return;
-             const rect = structureAnatomyCanvas.getBoundingClientRect();
-             entryPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-             const minX = structureAnatomyCanvas.width * 0.1; const maxX = structureAnatomyCanvas.width * 0.9;
-             const minY = 10; const maxY = structureAnatomyCanvas.height - 10;
-             entryPoint.x = Math.max(minX, Math.min(maxX, entryPoint.x));
-             entryPoint.y = Math.max(minY, Math.min(maxY, entryPoint.y));
-             pivotPoint = { x: (entryPoint.x / structureAnatomyCanvas.width) * ultrasoundCanvas.width, y: 15 };
+        // Entry Point Selection now on Slice Anatomy Canvas
+        sliceAnatomyCanvas.addEventListener('click', (e) => {
+             if (needleState !== 'awaiting_entry_point' || !nodule) return;
+             const rect = sliceAnatomyCanvas.getBoundingClientRect();
+             const clickX = e.clientX - rect.left;
+             const clickY = e.clientY - rect.top;
+             entryPoint = { x: clickX, y: clickY };
+
+             // Check vertical alignment
+             const viewCenterY = sliceAnatomyCanvas.height / 2;
+             const maxDrawRadius = sliceAnatomyCanvas.height / 2 - 15;
+             const maxPossibleNoduleRadius = 125;
+             const radiusScaleFactor = maxDrawRadius / maxPossibleNoduleRadius;
+             const mainDrawRadius = selectedNoduleRadius * radiusScaleFactor;
+             let lineY = viewCenterY;
+             if (maxSlices > 1) { const relativeDepth = (currentSlice - (maxSlices - 1) / 2) / (maxSlices / 2); lineY = viewCenterY + relativeDepth * mainDrawRadius; }
+             const verticalDistance = Math.abs(entryPoint.y - lineY);
+             const verticalThreshold = 10;
+             isNeedleOnTargetVertically = (verticalDistance <= verticalThreshold);
+
+             // If off target vertically, show warning and button, then stop
+             if (!isNeedleOnTargetVertically) {
+                 warningTextSpan.textContent = "Entry point too far from current slice. Please re-select.";
+                 removeNeedleButton.classList.remove('hidden');
+                 pivotPoint = null; // Don't set pivot point
+                 drawSliceAnatomy(); drawUltrasound();
+                 return; // Stop processing this click
+             }
+
+             // --- If on target vertically ---
+             warningTextSpan.textContent = ''; // Clear warning
+             removeNeedleButton.classList.add('hidden'); // Hide button
+             pivotPoint = { x: (clickX / sliceAnatomyCanvas.width) * ultrasoundCanvas.width, y: 15 };
+             pivotPoint.x = Math.max(0, Math.min(ultrasoundCanvas.width, pivotPoint.x)); // Clamp
              needleState = 'awaiting_insertion_angle';
              instructionText.textContent = 'Click Ultrasound View to Set Insertion Angle';
-             drawStructureAnatomy(); drawSliceAnatomy(); drawUltrasound();
+             drawSliceAnatomy(); drawUltrasound();
         });
+
 
         ultrasoundCanvas.addEventListener('click', (e) => { if (needleState !== 'awaiting_insertion_angle' || !pivotPoint) return; const rect = ultrasoundCanvas.getBoundingClientRect(); const clickX = e.clientX - rect.left; const clickY = e.clientY - rect.top; const dx = clickX - pivotPoint.x; const dy = clickY - pivotPoint.y; initialInsertionAngle = Math.atan2(dy, dx); initialInsertionAngle = Math.max(0.1, Math.min(Math.PI - 0.1, initialInsertionAngle)); needleAngle = initialInsertionAngle; needleLength = retractionThreshold + 5; needlePos.x = pivotPoint.x + Math.cos(needleAngle) * needleLength; needlePos.y = pivotPoint.y + Math.sin(needleAngle) * needleLength; needleState = 'inserted'; instructionText.textContent = 'Needle Inserted. Aim and Ablate.'; gameActive = true; rfButton.disabled = false; powerSlider.disabled = false; if (gameLogicInterval) clearInterval(gameLogicInterval); gameLogicInterval = setInterval(gameLoop, 50); if (!animationFrameId) animationFrameId = requestAnimationFrame(draw); });
         ultrasoundCanvas.addEventListener('mousemove', (e) => { // Unchanged
@@ -631,12 +829,24 @@
             drawUltrasound(); // Unconditional redraw
         });
 
-        // Grid/Outline Toggle Button Listener (Fixed)
+        // Grid/Outline Toggle Button Listener
         toggleGridButton.addEventListener('click', () => {
             showGridAndOutline = !showGridAndOutline;
             toggleGridButton.textContent = showGridAndOutline ? 'GRID ON' : 'GRID OFF';
-            // Redraw ultrasound immediately to reflect the change
             drawUltrasound();
+        });
+
+        // Remove Needle Button Listener
+        removeNeedleButton.addEventListener('click', () => {
+            // Resetting entry allows user to click again on slice view
+            needleState = 'awaiting_entry_point';
+            entryPoint = null;
+            pivotPoint = null;
+            isNeedleOnTargetVertically = false;
+            warningTextSpan.textContent = ''; // Clear specific warning
+            removeNeedleButton.classList.add('hidden'); // Hide self
+            instructionText.textContent = 'Click Nodule Slice View to Select Entry Point';
+            draw(); // Redraw relevant views
         });
 
 
@@ -661,8 +871,22 @@
                  }
              }
          });
-        powerSlider.addEventListener('input', (e) => { if (!gameActive || needleState !== 'inserted') return; power = parseInt(e.target.value); powerValueSpan.textContent = power; });
-        noduleButtons.forEach(button => { button.addEventListener('click', () => { if (needleState === 'inserted') return; selectedNoduleRadius = parseInt(button.getAttribute('data-size')); noduleButtons.forEach(btn => btn.classList.remove('selected')); button.classList.add('selected'); createNoduleAndVoxels(); startButton.disabled = false; if (needleState === 'idle') { instructionText.textContent = 'Click Start'; } else if (needleState === 'awaiting_entry_point') { instructionText.textContent = 'Click Anatomy View to Select Entry Point'; } else if (needleState === 'awaiting_insertion_angle') { instructionText.textContent = 'Click Ultrasound View to Set Insertion Angle'; } }); });
+        powerSlider.addEventListener('input', (e) => { // Unchanged
+             power = parseInt(e.target.value);
+             powerValueSpan.textContent = power;
+        });
+        noduleButtons.forEach(button => { button.addEventListener('click', () => {
+            if (needleState === 'inserted') return;
+            startButton.disabled = false; // Enable start button FIRST
+            selectedNoduleRadius = parseInt(button.getAttribute('data-size'));
+            noduleButtons.forEach(btn => btn.classList.remove('selected'));
+            button.classList.add('selected');
+            createNoduleAndVoxels(); // This calls draw() which might overwrite instruction text
+            // Set instruction text AFTER createNoduleAndVoxels
+            if (needleState === 'idle') { instructionText.textContent = 'Click Start'; }
+            else if (needleState === 'awaiting_entry_point') { instructionText.textContent = 'Click Nodule Slice View to Select Entry Point'; }
+            else if (needleState === 'awaiting_insertion_angle') { instructionText.textContent = 'Click Ultrasound View to Set Insertion Angle'; }
+         }); });
         startButton.addEventListener('click', startGame);
         resetButton.addEventListener('click', () => { endGame(true); });
         closeMessageButton.addEventListener('click', hideMessage);
